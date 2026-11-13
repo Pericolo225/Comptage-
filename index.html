@@ -84,8 +84,12 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
 .pad button{background:var(--key);border:1px solid var(--line);border-radius:10px;height:clamp(44px,7vh,60px);font-size:28px;font-weight:600}
 .pad button:active{background:var(--line)}
 .pad .fn{font-size:16px;font-family:"Barlow",system-ui,sans-serif}
-.actions{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-.actions button{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 6px;font-weight:600;font-size:15px}
+.actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+#closeZoneBtn{border-color:var(--tag)!important;background:color-mix(in srgb,var(--tag) 25%,var(--surface))!important}
+.errsheet{border-top:6px solid var(--bad)}
+.errsheet h2{color:var(--bad);font-size:26px}
+.errsheet .btn{font-size:20px;padding:16px}
+.actions button{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 4px;font-weight:600;font-size:14px;line-height:1.15}
 
 .manual{display:flex;gap:6px}
 .manual input{flex:1;min-width:0;font:inherit;font-family:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;font-size:22px;padding:8px 12px;border-radius:10px;border:1px dashed var(--muted);background:var(--surface);color:var(--ink);user-select:text;-webkit-user-select:text}
@@ -192,6 +196,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   </div>
   <div class="actions">
     <button id="undoBtn">Annuler le dernier</button>
+    <button id="closeZoneBtn">Fermer la zone</button>
     <button id="manualBtn">Code avec lettres</button>
   </div>
 </div>
@@ -329,12 +334,27 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   function handleCode(raw, src){
     const code = raw.replace(/\s+/g,"");
     if(zoneRegex().test(code)){ openZone(code.toUpperCase()); return; }
-    if(!state.zone){ beep(false); flash("Aucune zone ouverte : scanne d’abord l’étiquette de zone.", "bad"); return; }
+    if(!state.zone){ zoneError(code); return; }
     const qty = qtyBuf === "" ? 1 : parseInt(qtyBuf,10);
     if(!qty){ beep(false); flash("Quantité 0 refusée : efface et retape.", "bad"); qtyBuf=""; renderQty(); return; }
     state.lines.push({id: state.seq++, zone: state.zone, code, qty, t: new Date().toISOString(), src: src || "scan", who: state.counter || ""});
     qtyBuf = ""; save(); render(); beep(true);
     flash("+" + qty + "   " + code + (src === "manuel" ? "   (saisi)" : ""), "ok");
+  }
+  function zoneError(code){
+    beep(false); flash("ERREUR : article scanné sans zone ouverte.", "bad");
+    openSheet('<h2>Aucune zone ouverte</h2><p class="num" style="font-size:20px;color:var(--ink)">'+esc(code)+'</p>'+
+      '<p>Cet article n’a <b>pas</b> été compté. Scanne d’abord l’étiquette de zone, puis rescanne l’article.</p>'+
+      '<div class="btnrow"><button class="btn primary" id="errOk">Compris</button></div>');
+    $("sheet").classList.add("errsheet");
+    $("errOk").onclick = closeSheet;
+  }
+  function closeZone(){
+    if(cam.pending){ beep(false); flash("Valide ou ignore d’abord le code " + cam.pending + ".", "bad"); return; }
+    if(!state.zone){ flash("Aucune zone ouverte.", ""); return; }
+    const z = state.zone, zl = linesOf(z);
+    state.zone = null; qtyBuf = ""; save(); render(); beep(true, "zone");
+    flash("Zone " + z + " fermée : " + fmtLines(zl.length) + ", " + fmtQty(sum(zl)) + ". Scanne la zone suivante.", "zone");
   }
   function openZone(z){
     if(!state.zones.includes(z)) state.zones.push(z);
@@ -353,6 +373,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     else if(qtyBuf.length < 4) qtyBuf = (qtyBuf + k).replace(/^0+/, "");
     renderQty(); focusScan();
   });
+  $("closeZoneBtn").addEventListener("click", closeZone);
   $("undoBtn").addEventListener("click", () => {
     if(!state.zone){ return; }
     const zl = linesOf(state.zone); const last = zl[zl.length-1];
@@ -364,7 +385,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
 
   /* Sheets */
   function openSheet(html){ sheetOpen = true; $("sheet").innerHTML = html; $("veil").classList.add("open"); updateStatus(); }
-  function closeSheet(){ sheetOpen = false; $("veil").classList.remove("open"); $("sheet").innerHTML = ""; focusScan(); }
+  function closeSheet(){ $("sheet").classList.remove("errsheet"); sheetOpen = false; $("veil").classList.remove("open"); $("sheet").innerHTML = ""; focusScan(); }
   $("veil").addEventListener("click", e => { if(e.target.id === "veil") closeSheet(); });
   function confirmSheet(title, text, label, fn){
     openSheet('<h2>'+esc(title)+'</h2><p>'+esc(text)+'</p><div class="btnrow"><button class="btn" id="cNo">Garder</button><button class="btn danger" id="cYes">'+esc(label)+'</button></div>');
@@ -488,7 +509,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
       '<div class="btnrow"><button class="btn primary" id="xX">Exporter Excel</button><button class="btn" id="xC">Exporter CSV</button></div>'+
       '<p>Excel contient deux onglets : total par code (pour le rapprochement) et détail par zone. Les codes restent en texte.</p>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 4 du 13/11/2026</p>');
+      '<p style="font-size:13px">Version 5 du 13/11/2026</p>');
     const keep = () => { state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -516,7 +537,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   /* Every article scan (scanner or camera) waits for "Valider" when the option is on */
   function receiveScan(raw, src){
     const code = String(raw).replace(/\s+/g, "");
-    if(!code) return;
+    if(!code || sheetOpen) return;
     if(cam.pending){ beep(false); flash("Valide ou ignore d’abord le code " + cam.pending + ".", "bad"); return; }
     if(zoneRegex().test(code) || !state.zone || state.confirm === false){ handleCode(code, src); return; }
     cam.pending = code; cam.psrc = src; beep(true); showPending();

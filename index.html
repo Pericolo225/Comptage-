@@ -103,8 +103,9 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
 .cam .camtools{position:absolute;right:8px;top:8px;display:flex;gap:6px}
 .cam .camtools button{background:rgba(0,0,0,.6);color:#fff;border:1px solid rgba(255,255,255,.45);border-radius:8px;padding:6px 12px;font-weight:600;font-size:15px}
 .cam .camhint{position:absolute;left:10px;right:10px;bottom:8px;color:#fff;font-size:14px;text-shadow:0 1px 3px #000}
-.cam .pending{position:absolute;left:8px;right:8px;bottom:8px;display:none;align-items:center;gap:8px;background:var(--surface);color:var(--ink);border:2px solid var(--tag);border-radius:12px;padding:8px}
-.cam.has-pending .pending{display:flex}
+.pending{display:none;align-items:center;gap:8px;background:color-mix(in srgb,var(--ok) 12%,var(--surface));color:var(--ink);border:2px solid var(--ok);border-radius:12px;padding:8px}
+.pending.on{display:flex}
+.pending.on ~ .manual{display:none}
 .cam.has-pending .camhint{display:none}
 .cam.has-pending .frame{border-color:var(--ok)}
 .pending .pc{flex:1;min-width:0}
@@ -169,9 +170,9 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     <div class="frame"></div>
     <div class="camtools"><button id="torchBtn" hidden>Lampe</button><button id="camClose">Arrêter</button></div>
     <div class="camhint">Vise le code-barres dans le cadre. Une fois lu, tape la quantité si besoin, puis « Valider ».</div>
-    <div class="pending"><div class="pc"><div class="pcode" id="pCode"></div><div class="pq" id="pQty"></div></div><button id="camSkip">Ignorer</button><button id="camOk">Valider</button></div>
   </div>
 
+  <div class="pending" id="pend"><div class="pc"><div class="pcode" id="pCode"></div><div class="pq" id="pQty"></div></div><button id="camSkip">Ignorer</button><button id="camOk">Valider</button></div>
   <div class="manual">
     <input id="manualCode" inputmode="numeric" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Code non scanné : tape-le ici" aria-label="Code article à saisir">
     <button id="manualAdd">Ajouter</button>
@@ -291,6 +292,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   }
   function showPending(){
     $("cam").classList.toggle("has-pending", !!cam.pending);
+    $("pend").classList.toggle("on", !!cam.pending);
     if(cam.pending){ $("pCode").textContent = cam.pending; $("pQty").innerHTML = "Quantité : <b>" + (qtyBuf || "1") + "</b>"; }
   }
   function renderQty(){
@@ -315,7 +317,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     if(e.key === "Enter" || e.key === "Tab"){
       e.preventDefault();
       const v = scan.value.trim(); scan.value = "";
-      if(v) handleCode(v);
+      if(v) receiveScan(v, "scan");
     }
   });
   scan.addEventListener("blur", () => setTimeout(updateStatus, 50));
@@ -384,6 +386,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   function addManual(){
     const v = mc.value.trim();
     if(!v){ flash("Tape le code de l’article avant d’ajouter.", "bad"); mc.focus(); return; }
+    if(cam.pending){ beep(false); flash("Valide ou ignore d’abord le code " + cam.pending + ".", "bad"); return; }
     mc.value = ""; mc.setAttribute("inputmode","numeric"); $("manualBtn").textContent = "Code avec lettres";
     mc.blur(); handleCode(v, "manuel"); focusScan();
   }
@@ -479,12 +482,14 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
       '<div class="totals"><span><b class="num">'+state.zones.length+'</b> zones</span><span><b class="num">'+fmtLines(state.lines.length)+'</b></span><span><b class="num">'+sum(state.lines)+'</b> articles</span><span><b class="num">'+fmtPph(pphOf(state.lines))+'</b> PPH</span></div>'+
       '<label>Nom du compteur<input id="mw" value="'+esc(state.counter)+'" autocomplete="off" placeholder="Prénom et nom"></label>'+
       '<label>Nom du client ou de la mission<input id="mn" value="'+esc(state.mission)+'" autocomplete="off"></label>'+
+      '<label style="flex-direction:row;align-items:center;gap:10px"><input id="mv" type="checkbox" style="width:24px;height:24px"'+(state.confirm === false ? '' : ' checked')+'> Valider chaque scan (quantité puis « Valider »)</label>'+
       '<label>Préfixe des étiquettes de zone<input id="mp" value="'+esc(state.prefix)+'" maxlength="4" autocomplete="off"></label>'+
       '<div class="btnrow"><button class="btn" id="xB">Tester le bip</button></div>'+
       '<div class="btnrow"><button class="btn primary" id="xX">Exporter Excel</button><button class="btn" id="xC">Exporter CSV</button></div>'+
       '<p>Excel contient deux onglets : total par code (pour le rapprochement) et détail par zone. Les codes restent en texte.</p>'+
-      '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>');
-    const keep = () => { state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
+      '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
+      '<p style="font-size:13px">Version 4 du 13/11/2026</p>');
+    const keep = () => { state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
     $("xX").onclick = () => { keep(); exportXlsx(); };
@@ -505,8 +510,16 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     if(code !== cam.cand){ cam.cand = code; cam.candN = 1; return; }
     if(++cam.candN < 2) return;
     cam.cand = ""; cam.candN = 0;
-    if(zoneRegex().test(code)){ cam.block = code; handleCode(code, "camera"); return; }
-    cam.pending = code; beep(true); showPending();
+    if(zoneRegex().test(code)) cam.block = code;
+    receiveScan(code, "camera");
+  }
+  /* Every article scan (scanner or camera) waits for "Valider" when the option is on */
+  function receiveScan(raw, src){
+    const code = String(raw).replace(/\s+/g, "");
+    if(!code) return;
+    if(cam.pending){ beep(false); flash("Valide ou ignore d’abord le code " + cam.pending + ".", "bad"); return; }
+    if(zoneRegex().test(code) || !state.zone || state.confirm === false){ handleCode(code, src); return; }
+    cam.pending = code; cam.psrc = src; beep(true); showPending();
     flash("Code lu : tape la quantité si besoin, puis « Valider ».", "");
   }
   function onCamMiss(){
@@ -514,12 +527,14 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   }
   function camValidate(){
     if(!cam.pending) return;
-    const c = cam.pending; cam.pending = ""; cam.block = c; cam.misses = 0;
-    handleCode(c, "camera"); showPending();
+    const c = cam.pending, s = cam.psrc || "scan"; cam.pending = "";
+    if(s === "camera"){ cam.block = c; cam.misses = 0; }
+    handleCode(c, s); showPending(); focusScan();
   }
   function camSkip(){
     if(!cam.pending) return;
-    cam.block = cam.pending; cam.pending = ""; cam.misses = 0; qtyBuf = ""; renderQty();
+    if(cam.psrc === "camera"){ cam.block = cam.pending; cam.misses = 0; }
+    cam.pending = ""; qtyBuf = ""; renderQty(); focusScan();
     flash("Code ignoré.", "");
   }
   function loadScript(src){ return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); }); }
@@ -534,7 +549,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     }
     const v = $("camVideo"); v.srcObject = cam.stream;
     try{ await v.play(); }catch(e){}
-    cam.on = true; cam.torch = false; cam.pending = ""; cam.block = ""; cam.cand = ""; cam.candN = 0;
+    cam.on = true; cam.torch = false; cam.block = ""; cam.cand = ""; cam.candN = 0;
     $("cam").classList.add("on"); $("list").style.display = "none"; $("camBtn").textContent = "Arrêter";
     $("torchBtn").textContent = "Lampe";
     try{ const t = cam.stream.getVideoTracks()[0]; const caps = t.getCapabilities ? t.getCapabilities() : {}; $("torchBtn").hidden = !caps.torch; }catch(e){ $("torchBtn").hidden = true; }
@@ -567,7 +582,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   }
   function stopCam(){
     cam.on = false; clearTimeout(cam.timer);
-    cam.pending = ""; cam.block = ""; cam.cand = ""; cam.candN = 0; showPending();
+    cam.block = ""; cam.cand = ""; cam.candN = 0; showPending();
     try{ if(cam.zx) cam.zx.reset(); }catch(e){}
     cam.zx = null;
     if(cam.stream){ cam.stream.getTracks().forEach(t => t.stop()); cam.stream = null; }

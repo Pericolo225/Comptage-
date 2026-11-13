@@ -1,4 +1,4 @@
-const CACHE = "comptage-v3";
+const CACHE = "comptage-v4";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./xlsx.full.min.js", "./zxing.min.js", "./icon-192.png", "./icon-512.png"];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES.map(f => new Request(f, {cache: "reload"})))));
@@ -10,8 +10,18 @@ self.addEventListener("activate", e => {
 });
 self.addEventListener("fetch", e => {
   if(e.request.method !== "GET") return;
+  const url = new URL(e.request.url);
+  const isPage = e.request.mode === "navigate" || url.pathname.endsWith(".html") || url.pathname.endsWith("/");
+  if(isPage && url.origin === location.origin){
+    // Page: network first so updates arrive at once; cache when offline
+    e.respondWith(fetch(new Request(e.request, {cache: "no-store"})).then(res => {
+      if(res.ok){ const copy = res.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }
+      return res;
+    }).catch(() => caches.match(e.request).then(r => r || caches.match("./index.html"))));
+    return;
+  }
   e.respondWith(caches.match(e.request).then(r => r || fetch(e.request).then(res => {
-    if(res.ok && new URL(e.request.url).origin === location.origin){ const copy = res.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }
+    if(res.ok && url.origin === location.origin){ const copy = res.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }
     return res;
   }).catch(() => caches.match("./index.html"))));
 });

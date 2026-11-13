@@ -143,6 +143,19 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
 .zitem .zn{font-size:24px;font-weight:700;min-width:70px}
 .zitem .zs{flex:1;color:var(--muted);font-size:14px}
 .zitem .btn{padding:8px 10px;font-size:14px}
+.zitem{flex-wrap:wrap}
+.zbtns{display:flex;gap:6px;width:100%}
+.zbtns .btn{flex:1}
+.dlist{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;overflow:hidden;max-height:52vh;overflow-y:auto}
+.dline{display:flex;align-items:center;gap:8px;width:100%;padding:9px 12px;border:0;border-bottom:1px solid var(--line);background:none;text-align:left;color:var(--ink)}
+.dline:last-child{border-bottom:0}
+.dline .dn{color:var(--muted);font-size:13px;min-width:26px}
+.dline .dc{flex:1;font-size:19px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dline .dm{font-size:12px;color:var(--muted)}
+.dline .dq{font-size:22px;font-weight:700;min-width:40px;text-align:right}
+.seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{flex:1;border:0;background:var(--key);padding:10px;font-weight:600;font-size:15px}
+.seg button.on{background:var(--act);color:var(--actInk)}
 .totals{display:flex;gap:16px;font-size:15px;color:var(--muted)}
 .totals b{color:var(--ink);font-size:20px}
 @media (prefers-reduced-motion:no-preference){ .flash{transition:background .15s} }
@@ -342,6 +355,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     flash("+" + qty + "   " + code + (src === "manuel" ? "   (saisi)" : ""), "ok");
   }
   function zoneError(code){
+    if(cam.on){ cam.block = code; cam.misses = 0; }
     beep(false); flash("ERREUR : article scanné sans zone ouverte.", "bad");
     openSheet('<h2>Aucune zone ouverte</h2><p class="num" style="font-size:20px;color:var(--ink)">'+esc(code)+'</p>'+
       '<p>Cet article n’a <b>pas</b> été compté. Scanne d’abord l’étiquette de zone, puis rescanne l’article.</p>'+
@@ -392,14 +406,42 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     $("cNo").onclick = closeSheet; $("cYes").onclick = () => { fn(); closeSheet(); };
   }
 
-  function editLine(id){
+  /* Detail of a zone: every line in scan order, or totals per code */
+  function zoneDetail(z, mode){
+    const zl = linesOf(z);
+    const modeLbl = l => l.src === "manuel" ? "saisi" : l.src === "camera" ? "caméra" : "scan";
+    let rows;
+    if(mode === "code"){
+      const m = new Map();
+      zl.forEach(l => { const e = m.get(l.code) || {qty:0, n:0}; e.qty += l.qty; e.n++; m.set(l.code, e); });
+      rows = [...m.entries()].map(([c,e], i) =>
+        '<div class="dline"><span class="dn num">'+(i+1)+'</span><span class="dc num">'+esc(c)+'</span><span class="dm">'+e.n+' scan'+(e.n>1?'s':'')+'</span><span class="dq num">'+e.qty+'</span></div>').join("");
+    } else {
+      rows = zl.map((l, i) =>
+        '<button class="dline" data-line="'+l.id+'"><span class="dn num">'+(i+1)+'</span><span class="dc num">'+esc(l.code)+'</span><span class="dm">'+modeLbl(l)+'</span><span class="dq num">'+l.qty+'</span></button>').join("");
+    }
+    const nCodes = new Set(zl.map(l => l.code)).size;
+    openSheet('<h2>Zone '+esc(z)+(z === state.zone ? ' (ouverte)' : '')+'</h2>'+
+      '<div class="totals"><span><b class="num">'+sum(zl)+'</b> articles</span><span><b class="num">'+zl.length+'</b> scans</span><span><b class="num">'+nCodes+'</b> codes</span></div>'+
+      '<div class="seg"><button id="dScan" class="'+(mode==="code"?'':'on')+'">Par scan</button><button id="dCode" class="'+(mode==="code"?'on':'')+'">Total par code</button></div>'+
+      (zl.length ? '<div class="dlist">'+rows+'</div>' : '<p>Aucun article compté dans cette zone.</p>')+
+      (mode==="code" ? '' : '<p style="font-size:14px">Touche une ligne pour corriger sa quantité ou la supprimer.</p>')+
+      '<div class="btnrow"><button class="btn" id="dBack">Retour aux zones</button><button class="btn" id="dNo">Fermer</button></div>');
+    $("dScan").onclick = () => zoneDetail(z, "scan");
+    $("dCode").onclick = () => zoneDetail(z, "code");
+    $("dBack").onclick = zonesSheet;
+    $("dNo").onclick = closeSheet;
+    $("sheet").querySelectorAll("[data-line]").forEach(b => b.onclick = () => editLine(+b.dataset.line, () => zoneDetail(z, "scan")));
+  }
+  function editLine(id, back){
+    const done = () => back ? back() : closeSheet();
     const l = state.lines.find(x => x.id === id); if(!l) return;
     openSheet('<h2>Corriger la ligne</h2><p class="num" style="font-size:20px;color:var(--ink)">'+esc(l.code)+'</p>'+
       '<label>Quantité<input id="eq" type="number" inputmode="numeric" min="1" value="'+l.qty+'"></label>'+
       '<div class="btnrow"><button class="btn danger" id="eDel">Supprimer</button><button class="btn" id="eNo">Fermer</button><button class="btn primary" id="eOk">Enregistrer</button></div>');
-    $("eNo").onclick = closeSheet;
-    $("eDel").onclick = () => { state.lines = state.lines.filter(x => x.id !== id); save(); render(); flash("Ligne supprimée : " + l.code, ""); closeSheet(); };
-    $("eOk").onclick = () => { const q = parseInt($("eq").value,10); if(q>0){ l.qty = q; save(); render(); flash("Corrigé : " + l.code + " = " + q, "ok"); } closeSheet(); };
+    $("eNo").onclick = done;
+    $("eDel").onclick = () => { state.lines = state.lines.filter(x => x.id !== id); save(); render(); flash("Ligne supprimée : " + l.code, ""); done(); };
+    $("eOk").onclick = () => { const q = parseInt($("eq").value,10); if(q>0){ l.qty = q; save(); render(); flash("Corrigé : " + l.code + " = " + q, "ok"); } done(); };
   }
 
   /* Manual code field */
@@ -427,7 +469,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     const items = state.zones.map(z => {
       const zl = linesOf(z);
       return '<div class="zitem'+(z===state.zone?' cur':'')+'"><span class="zn num">'+esc(z)+'</span><span class="zs">'+fmtLines(zl.length)+'<br>'+fmtQty(sum(zl))+'<br>PPH '+fmtPph(pphOf(zl))+'</span>'+
-        '<button class="btn" data-open="'+esc(z)+'">Ouvrir</button><button class="btn danger" data-reset="'+esc(z)+'">Recompter</button></div>';
+        '<div class="zbtns"><button class="btn" data-view="'+esc(z)+'">Voir les articles</button><button class="btn" data-open="'+esc(z)+'">Ouvrir</button><button class="btn danger" data-reset="'+esc(z)+'">Recompter</button></div></div>';
     }).join("");
     openSheet('<h2>Zones</h2><div class="totals"><span><b class="num">'+state.zones.length+'</b> zones</span><span><b class="num">'+sum(state.lines)+'</b> articles</span></div>'+
       (items ? '<div class="zlist">'+items+'</div>' : '<p>Aucune zone pour l’instant. Scanne une étiquette ou crée une zone ici.</p>')+
@@ -440,6 +482,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
       closeSheet(); openZone(v);
     };
     $("sheet").querySelectorAll("[data-open]").forEach(b => b.onclick = () => { const z = b.dataset.open; closeSheet(); openZone(z); });
+    $("sheet").querySelectorAll("[data-view]").forEach(b => b.onclick = () => zoneDetail(b.dataset.view, "scan"));
     $("sheet").querySelectorAll("[data-reset]").forEach(b => b.onclick = () => {
       const z = b.dataset.reset, n = linesOf(z).length;
       confirmSheet("Recompter " + z + " ?", "Les " + fmtLines(n) + " de cette zone seront effacées, puis la zone sera rouverte vide.", "Effacer et recompter", () => {
@@ -509,7 +552,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
       '<div class="btnrow"><button class="btn primary" id="xX">Exporter Excel</button><button class="btn" id="xC">Exporter CSV</button></div>'+
       '<p>Excel contient deux onglets : total par code (pour le rapprochement) et détail par zone. Les codes restent en texte.</p>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 5 du 13/11/2026</p>');
+      '<p style="font-size:13px">Version 6 du 13/11/2026</p>');
     const keep = () => { state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Comptage par zones</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="xlsx.full.min.js"></script>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#FFD23F">
+<link rel="icon" href="icon-192.png">
+<style>
+:root{
+  --bg:#E8ECF0; --surface:#FFFFFF; --ink:#18222E; --muted:#5B6878; --line:#CBD3DC;
+  --tag:#FFD23F; --tagInk:#1E1C10; --act:#1F5FBF; --actInk:#FFFFFF; --ok:#2B7A4B; --bad:#B8322A; --key:#F4F6F8;
+  color-scheme:light;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#1B222B; --surface:#25303B; --ink:#E7ECF1; --muted:#9AA7B5; --line:#3A4754;
+    --act:#4C8DF0; --actInk:#FFFFFF; --ok:#52B57D; --bad:#E2655C; --key:#2D3946; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#1B222B; --surface:#25303B; --ink:#E7ECF1; --muted:#9AA7B5; --line:#3A4754;
+  --act:#4C8DF0; --actInk:#FFFFFF; --ok:#52B57D; --bad:#E2655C; --key:#2D3946; color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+  font-family:"Barlow",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:16px;
+  -webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
+.num{font-family:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;font-variant-numeric:tabular-nums}
+
+.app{height:100%;display:flex;flex-direction:column;max-width:560px;margin:0 auto;padding:10px;gap:8px}
+
+/* Zone tag: the hang tag stuck on each fixture */
+.top{display:flex;gap:10px;align-items:stretch}
+.tag{position:relative;background:var(--tag);color:var(--tagInk);border-radius:6px 18px 18px 6px;
+  padding:6px 16px 6px 30px;min-width:140px;display:flex;flex-direction:column;justify-content:center;border:0;text-align:left}
+.tag::before{content:"";position:absolute;left:10px;top:50%;width:11px;height:11px;margin-top:-5.5px;border-radius:50%;
+  background:var(--bg);box-shadow:inset 0 0 0 2px rgba(0,0,0,.25)}
+.tag small{font-size:13px;font-weight:600;opacity:.75}
+.tag strong{font-size:40px;line-height:1;font-weight:700;letter-spacing:.5px}
+.tag.empty strong{font-size:22px;line-height:1.15}
+.stats{flex:1;display:flex;flex-direction:column;justify-content:center;gap:2px;min-width:0}
+.stats .big{font-size:26px;font-weight:700;line-height:1}
+.stats .small{color:var(--muted);font-size:14px}
+.topbtns{display:flex;flex-direction:column;gap:6px}
+.ghost{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:6px 12px;font-weight:600;font-size:15px}
+
+.status{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--muted);padding:0 2px;min-height:22px}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--ok);flex:none}
+.status.off .dot{background:var(--bad)}
+.status.off{color:var(--bad);font-weight:600}
+
+.flash{min-height:30px;border-radius:8px;padding:4px 10px;font-weight:600;display:flex;align-items:center;gap:8px;
+  background:var(--surface);border:1px solid var(--line)}
+.flash.ok{border-color:var(--ok);color:var(--ok)}
+.flash.bad{border-color:var(--bad);color:var(--bad);background:color-mix(in srgb,var(--bad) 10%,var(--surface))}
+.flash.zone{border-color:var(--tag);background:color-mix(in srgb,var(--tag) 22%,var(--surface))}
+
+.list{flex:1;min-height:80px;overflow-y:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px}
+.row{display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;border:0;border-bottom:1px solid var(--line);background:none;text-align:left}
+.row:last-child{border-bottom:0}
+.row .code{flex:1;font-size:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .q{font-size:24px;font-weight:700;min-width:48px;text-align:right}
+.row.latest{box-shadow:inset 5px 0 0 var(--tag);background:color-mix(in srgb,var(--tag) 10%,var(--surface))}
+.emptymsg{padding:18px 14px;color:var(--muted);line-height:1.4}
+
+.qty{display:flex;align-items:baseline;justify-content:space-between;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:4px 14px}
+.qty .lbl{font-size:15px;color:var(--muted)}
+.qty .val{font-size:40px;font-weight:700;line-height:1.1;color:var(--muted)}
+.qty.set{border-color:var(--act)}
+.qty.set .val{color:var(--act)}
+
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.pad button{background:var(--key);border:1px solid var(--line);border-radius:10px;height:clamp(44px,7vh,60px);font-size:28px;font-weight:600}
+.pad button:active{background:var(--line)}
+.pad .fn{font-size:16px;font-family:"Barlow",system-ui,sans-serif}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.actions button{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 6px;font-weight:600;font-size:15px}
+
+.manual{display:flex;gap:6px}
+.manual input{flex:1;min-width:0;font:inherit;font-family:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;font-size:22px;padding:8px 12px;border-radius:10px;border:1px dashed var(--muted);background:var(--surface);color:var(--ink);user-select:text;-webkit-user-select:text}
+.manual input:focus{outline:none;border:2px solid var(--act)}
+.manual input::placeholder{color:var(--muted);font-family:"Barlow",system-ui,sans-serif;font-size:16px}
+.manual button{background:var(--act);color:var(--actInk);border:0;border-radius:10px;padding:0 16px;font-weight:600;font-size:16px}
+.row .src{font-size:12px;font-weight:600;color:var(--act);border:1px solid var(--act);border-radius:5px;padding:1px 5px}
+.status.typing{color:var(--act);font-weight:600}
+.pph{margin-left:auto;flex:none;font-family:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:18px;font-weight:700;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:0 8px}
+.status.typing .dot{background:var(--act)}
+#scan{position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;border:0;padding:0}
+
+/* Sheets */
+.veil{position:fixed;inset:0;background:rgba(10,15,20,.55);display:none;align-items:flex-end;justify-content:center;z-index:20}
+.veil.open{display:flex}
+.sheet{background:var(--surface);width:100%;max-width:560px;max-height:88%;overflow-y:auto;border-radius:16px 16px 0 0;
+  padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:12px;user-select:text}
+.sheet h2{margin:0;font-size:22px}
+.sheet p{margin:0;color:var(--muted);line-height:1.4}
+.sheet label{display:flex;flex-direction:column;gap:4px;font-weight:600;font-size:15px}
+.sheet input{font:inherit;font-size:20px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+.btn{border:0;border-radius:10px;padding:12px 14px;font-weight:600;font-size:16px;background:var(--key);border:1px solid var(--line)}
+.btn.primary{background:var(--act);color:var(--actInk);border-color:var(--act)}
+.btn.danger{background:none;color:var(--bad);border-color:var(--bad)}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap}
+.btnrow .btn{flex:1}
+.zlist{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.zitem{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line)}
+.zitem:last-child{border-bottom:0}
+.zitem.cur{background:color-mix(in srgb,var(--tag) 20%,var(--surface))}
+.zitem .zn{font-size:24px;font-weight:700;min-width:70px}
+.zitem .zs{flex:1;color:var(--muted);font-size:14px}
+.zitem .btn{padding:8px 10px;font-size:14px}
+.totals{display:flex;gap:16px;font-size:15px;color:var(--muted)}
+.totals b{color:var(--ink);font-size:20px}
+@media (prefers-reduced-motion:no-preference){ .flash{transition:background .15s} }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <button class="tag empty" id="tagBtn" aria-label="Choisir une zone">
+      <small>Zone</small><strong class="num" id="zoneName">À scanner</strong>
+    </button>
+    <div class="stats">
+      <div class="big num" id="zoneQty">0 article</div>
+      <div class="small" id="zoneLines">0 ligne dans la zone</div>
+      <div class="small" id="who"></div>
+    </div>
+    <div class="topbtns">
+      <button class="ghost" id="zonesBtn">Zones</button>
+      <button class="ghost" id="menuBtn">Menu</button>
+    </div>
+  </div>
+
+  <div class="status" id="status"><span class="dot"></span><span id="statusTxt">Prêt à scanner</span><span class="pph" id="pph" title="Pièces par heure sur la mission"></span></div>
+  <div class="flash" id="flash">Scanne l’étiquette de zone pour commencer.</div>
+
+  <div class="list" id="list"></div>
+
+  <div class="manual">
+    <input id="manualCode" inputmode="numeric" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Code non scanné : tape-le ici" aria-label="Code article à saisir">
+    <button id="manualAdd">Ajouter</button>
+  </div>
+
+  <div class="qty" id="qtyBox">
+    <span class="lbl" id="qtyLbl">Quantité du prochain scan</span>
+    <span class="val num" id="qtyVal">1</span>
+  </div>
+
+  <div class="pad" id="pad">
+    <button class="num" data-k="1">1</button><button class="num" data-k="2">2</button><button class="num" data-k="3">3</button>
+    <button class="num" data-k="4">4</button><button class="num" data-k="5">5</button><button class="num" data-k="6">6</button>
+    <button class="num" data-k="7">7</button><button class="num" data-k="8">8</button><button class="num" data-k="9">9</button>
+    <button class="fn" data-k="C">Effacer</button><button class="num" data-k="0">0</button><button class="fn" data-k="B" aria-label="Retour arrière">⌫</button>
+  </div>
+  <div class="actions">
+    <button id="undoBtn">Annuler le dernier</button>
+    <button id="manualBtn">Code avec lettres</button>
+  </div>
+</div>
+
+<input id="scan" inputmode="none" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Entrée scanner">
+
+<div class="veil" id="veil"><div class="sheet" id="sheet" role="dialog" aria-modal="true"></div></div>
+
+<script>
+(function(){
+  const KEY = "comptage-zones-v1";
+  const $ = id => document.getElementById(id);
+  let state = load();
+  let qtyBuf = "";
+  let sheetOpen = false;
+  let audioCtx = null;
+
+  function blank(){ return {mission:"", counter:"", prefix:"Z", zone:null, zones:[], lines:[], seq:1}; }
+  function load(){
+    try{ const s = JSON.parse(localStorage.getItem(KEY)); if(s && Array.isArray(s.lines)) return Object.assign(blank(), s); }catch(e){}
+    return blank();
+  }
+  function save(){ try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){ flash("Sauvegarde impossible sur cet appareil : exporte régulièrement.", "bad"); } }
+
+  const fmtQty = n => n + (n>1 ? " articles" : " article");
+  const fmtLines = n => n + (n>1 ? " lignes" : " ligne");
+  const linesOf = z => state.lines.filter(l => l.zone === z);
+  const sum = arr => arr.reduce((a,l)=>a+l.qty,0);
+  /* PPH: pieces per hour on active time; a gap over 5 min between two scans counts as a pause */
+  const PAUSE_MS = 5*60*1000;
+  function pphOf(lines){
+    if(lines.length < 2) return null;
+    const ts = lines.map(l => Date.parse(l.t)).sort((a,b)=>a-b);
+    let active = 0;
+    for(let i=1;i<ts.length;i++){ const g = ts[i]-ts[i-1]; if(g <= PAUSE_MS) active += g; }
+    if(active < 60000) return null;
+    return Math.round(sum(lines) / (active/3600000));
+  }
+  const fmtPph = v => v === null ? "—" : v.toLocaleString("fr-FR");
+  function esc(s){ return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+  function zoneRegex(){ const p = (state.prefix||"Z").replace(/[.*+?^${}()|[\]\\]/g,"\\$&"); return new RegExp("^"+p+"\\d{1,6}$","i"); }
+
+  /* Feedback */
+  function getCtx(){
+    try{
+      audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
+      if(audioCtx.state === "suspended") audioCtx.resume();
+    }catch(e){ audioCtx = null; }
+    return audioCtx;
+  }
+  /* Unlock sound on the first touch or key press */
+  ["pointerdown","keydown"].forEach(ev => window.addEventListener(ev, getCtx, {capture:true}));
+  function tone(ctx, freq, start, dur, type, vol){
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, start);
+    g.gain.exponentialRampToValueAtTime(vol, start + 0.01);
+    g.gain.setValueAtTime(vol, start + dur - 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+    o.connect(g); g.connect(ctx.destination); o.start(start); o.stop(start + dur + 0.02);
+  }
+  function beep(ok, kind){
+    const ctx = getCtx();
+    if(ctx){
+      try{
+        const t = ctx.currentTime + 0.01;
+        if(!ok){ tone(ctx, 330, t, 0.18, "square", 0.35); tone(ctx, 220, t + 0.22, 0.25, "square", 0.35); }
+        else if(kind === "zone"){ tone(ctx, 1200, t, 0.09, "square", 0.3); tone(ctx, 1800, t + 0.12, 0.12, "square", 0.3); }
+        else { tone(ctx, 2400, t, 0.12, "square", 0.3); }
+      }catch(e){}
+    }
+    try{ navigator.vibrate && navigator.vibrate(ok ? 30 : [120,60,120]); }catch(e){}
+  }
+  function flash(msg, kind){ const f = $("flash"); f.className = "flash " + (kind||""); f.textContent = msg; }
+
+  /* Render */
+  function render(){
+    const z = state.zone;
+    $("tagBtn").classList.toggle("empty", !z);
+    $("zoneName").textContent = z || "À scanner";
+    const zl = z ? linesOf(z) : [];
+    $("zoneQty").textContent = fmtQty(sum(zl));
+    $("zoneLines").textContent = z ? fmtLines(zl.length) + " dans la zone" : "Aucune zone ouverte";
+    const list = $("list");
+    if(!z){
+      list.innerHTML = '<div class="emptymsg">Scanne l’étiquette de zone (par exemple ' + esc((state.prefix||"Z")+"001") + ') ou touche « Zones » pour en ouvrir une.</div>';
+    } else if(!zl.length){
+      list.innerHTML = '<div class="emptymsg">Zone vide. Scanne un article : il compte pour 1. Pour un lot, tape d’abord la quantité, puis scanne.</div>';
+    } else {
+      const rows = zl.slice(-60).reverse();
+      list.innerHTML = rows.map((l,i) =>
+        '<button class="row'+(i===0?' latest':'')+'" data-id="'+l.id+'"><span class="code num">'+esc(l.code)+'</span>'+(l.src==="manuel"?'<span class="src">saisi</span>':'')+'<span class="q num">'+l.qty+'</span></button>'
+      ).join("");
+    }
+    $("pph").textContent = "PPH " + fmtPph(pphOf(state.lines));
+    $("who").textContent = state.counter ? "Compteur : " + state.counter : "Compteur : à renseigner dans Menu";
+    renderQty();
+  }
+  function renderQty(){
+    const set = qtyBuf !== "";
+    $("qtyBox").classList.toggle("set", set);
+    $("qtyVal").textContent = set ? "× " + qtyBuf : "1";
+    $("qtyLbl").textContent = set ? "Quantité du prochain scan" : "Scan simple : compte 1";
+  }
+
+  /* Scanner input */
+  const scan = $("scan");
+  function focusScan(){ if(!sheetOpen){ try{ scan.focus({preventScroll:true}); }catch(e){ scan.focus(); } } updateStatus(); }
+  function updateStatus(){
+    const typing = document.activeElement === $("manualCode");
+    const on = document.activeElement === scan && document.hasFocus();
+    $("status").classList.toggle("typing", typing);
+    $("status").classList.toggle("off", !on && !typing);
+    $("statusTxt").textContent = typing ? "Saisie manuelle : tape le code puis « Ajouter »" : on ? "Prêt à scanner" : "Scan en pause : touche l’écran pour reprendre";
+  }
+  scan.addEventListener("keydown", e => {
+    if(e.key === "Enter" || e.key === "Tab"){
+      e.preventDefault();
+      const v = scan.value.trim(); scan.value = "";
+      if(v) handleCode(v);
+    }
+  });
+  scan.addEventListener("blur", () => setTimeout(updateStatus, 50));
+  scan.addEventListener("focus", updateStatus);
+  window.addEventListener("focus", () => setTimeout(focusScan, 50));
+  window.addEventListener("blur", updateStatus);
+  document.addEventListener("click", e => { if(!sheetOpen && !e.target.closest(".row, .manual, #manualBtn")) focusScan(); });
+
+  function handleCode(raw, src){
+    const code = raw.replace(/\s+/g,"");
+    if(zoneRegex().test(code)){ openZone(code.toUpperCase()); return; }
+    if(!state.zone){ beep(false); flash("Aucune zone ouverte : scanne d’abord l’étiquette de zone.", "bad"); return; }
+    const qty = qtyBuf === "" ? 1 : parseInt(qtyBuf,10);
+    if(!qty){ beep(false); flash("Quantité 0 refusée : efface et retape.", "bad"); qtyBuf=""; renderQty(); return; }
+    state.lines.push({id: state.seq++, zone: state.zone, code, qty, t: new Date().toISOString(), src: src || "scan", who: state.counter || ""});
+    qtyBuf = ""; save(); render(); beep(true);
+    flash("+" + qty + "   " + code + (src === "manuel" ? "   (saisi)" : ""), "ok");
+  }
+  function openZone(z){
+    if(!state.zones.includes(z)) state.zones.push(z);
+    const already = linesOf(z).length;
+    state.zone = z; qtyBuf = ""; save(); render(); beep(true, "zone");
+    flash(already ? "Zone " + z + " rouverte : " + fmtLines(already) + " déjà comptées." : "Zone " + z + " ouverte.", "zone");
+  }
+
+  /* Keypad: keep focus on the scanner field */
+  document.querySelectorAll(".pad button, .actions button, .topbtns button, #tagBtn").forEach(b =>
+    b.addEventListener("pointerdown", e => e.preventDefault()));
+  $("pad").addEventListener("click", e => {
+    const k = e.target.closest("button")?.dataset.k; if(!k) return;
+    if(k === "C") qtyBuf = "";
+    else if(k === "B") qtyBuf = qtyBuf.slice(0,-1);
+    else if(qtyBuf.length < 4) qtyBuf = (qtyBuf + k).replace(/^0+/, "");
+    renderQty(); focusScan();
+  });
+  $("undoBtn").addEventListener("click", () => {
+    if(!state.zone){ return; }
+    const zl = linesOf(state.zone); const last = zl[zl.length-1];
+    if(!last){ flash("Rien à annuler dans cette zone.", ""); return; }
+    state.lines = state.lines.filter(l => l.id !== last.id); save(); render();
+    flash("Annulé : " + last.code + " (" + last.qty + ")", "");
+  });
+  $("list").addEventListener("click", e => { const r = e.target.closest(".row"); if(r) editLine(+r.dataset.id); });
+
+  /* Sheets */
+  function openSheet(html){ sheetOpen = true; $("sheet").innerHTML = html; $("veil").classList.add("open"); updateStatus(); }
+  function closeSheet(){ sheetOpen = false; $("veil").classList.remove("open"); $("sheet").innerHTML = ""; focusScan(); }
+  $("veil").addEventListener("click", e => { if(e.target.id === "veil") closeSheet(); });
+  function confirmSheet(title, text, label, fn){
+    openSheet('<h2>'+esc(title)+'</h2><p>'+esc(text)+'</p><div class="btnrow"><button class="btn" id="cNo">Garder</button><button class="btn danger" id="cYes">'+esc(label)+'</button></div>');
+    $("cNo").onclick = closeSheet; $("cYes").onclick = () => { fn(); closeSheet(); };
+  }
+
+  function editLine(id){
+    const l = state.lines.find(x => x.id === id); if(!l) return;
+    openSheet('<h2>Corriger la ligne</h2><p class="num" style="font-size:20px;color:var(--ink)">'+esc(l.code)+'</p>'+
+      '<label>Quantité<input id="eq" type="number" inputmode="numeric" min="1" value="'+l.qty+'"></label>'+
+      '<div class="btnrow"><button class="btn danger" id="eDel">Supprimer</button><button class="btn" id="eNo">Fermer</button><button class="btn primary" id="eOk">Enregistrer</button></div>');
+    $("eNo").onclick = closeSheet;
+    $("eDel").onclick = () => { state.lines = state.lines.filter(x => x.id !== id); save(); render(); flash("Ligne supprimée : " + l.code, ""); closeSheet(); };
+    $("eOk").onclick = () => { const q = parseInt($("eq").value,10); if(q>0){ l.qty = q; save(); render(); flash("Corrigé : " + l.code + " = " + q, "ok"); } closeSheet(); };
+  }
+
+  /* Manual code field */
+  const mc = $("manualCode");
+  function addManual(){
+    const v = mc.value.trim();
+    if(!v){ flash("Tape le code de l’article avant d’ajouter.", "bad"); mc.focus(); return; }
+    mc.value = ""; mc.setAttribute("inputmode","numeric"); $("manualBtn").textContent = "Code avec lettres";
+    mc.blur(); handleCode(v, "manuel"); focusScan();
+  }
+  $("manualAdd").addEventListener("pointerdown", e => e.preventDefault());
+  $("manualAdd").addEventListener("click", addManual);
+  mc.addEventListener("keydown", e => { if(e.key === "Enter"){ e.preventDefault(); addManual(); } });
+  mc.addEventListener("focus", updateStatus);
+  mc.addEventListener("blur", () => setTimeout(updateStatus, 50));
+  $("manualBtn").addEventListener("click", () => {
+    const toText = mc.getAttribute("inputmode") !== "text";
+    mc.setAttribute("inputmode", toText ? "text" : "numeric");
+    $("manualBtn").textContent = toText ? "Code en chiffres" : "Code avec lettres";
+    mc.blur(); setTimeout(() => mc.focus(), 30);
+  });
+
+  function zonesSheet(){
+    const items = state.zones.map(z => {
+      const zl = linesOf(z);
+      return '<div class="zitem'+(z===state.zone?' cur':'')+'"><span class="zn num">'+esc(z)+'</span><span class="zs">'+fmtLines(zl.length)+'<br>'+fmtQty(sum(zl))+'<br>PPH '+fmtPph(pphOf(zl))+'</span>'+
+        '<button class="btn" data-open="'+esc(z)+'">Ouvrir</button><button class="btn danger" data-reset="'+esc(z)+'">Recompter</button></div>';
+    }).join("");
+    openSheet('<h2>Zones</h2><div class="totals"><span><b class="num">'+state.zones.length+'</b> zones</span><span><b class="num">'+sum(state.lines)+'</b> articles</span></div>'+
+      (items ? '<div class="zlist">'+items+'</div>' : '<p>Aucune zone pour l’instant. Scanne une étiquette ou crée une zone ici.</p>')+
+      '<label>Ouvrir ou créer une zone<input id="nz" class="num" autocomplete="off" placeholder="'+esc((state.prefix||"Z")+"001")+'"></label>'+
+      '<div class="btnrow"><button class="btn" id="zNo">Fermer</button><button class="btn primary" id="zOk">Ouvrir cette zone</button></div>');
+    $("zNo").onclick = closeSheet;
+    $("zOk").onclick = () => {
+      let v = $("nz").value.trim().toUpperCase(); if(!v) return;
+      if(/^\d+$/.test(v)) v = (state.prefix||"Z").toUpperCase() + v.padStart(3,"0");
+      closeSheet(); openZone(v);
+    };
+    $("sheet").querySelectorAll("[data-open]").forEach(b => b.onclick = () => { const z = b.dataset.open; closeSheet(); openZone(z); });
+    $("sheet").querySelectorAll("[data-reset]").forEach(b => b.onclick = () => {
+      const z = b.dataset.reset, n = linesOf(z).length;
+      confirmSheet("Recompter " + z + " ?", "Les " + fmtLines(n) + " de cette zone seront effacées, puis la zone sera rouverte vide.", "Effacer et recompter", () => {
+        state.lines = state.lines.filter(l => l.zone !== z); state.zone = z; save(); render(); flash("Zone " + z + " vidée : recomptage.", "zone");
+      });
+    });
+  }
+  $("zonesBtn").addEventListener("click", zonesSheet);
+  $("tagBtn").addEventListener("click", zonesSheet);
+
+  /* Export */
+  function stamp(){ const d = new Date(), p = n => String(n).padStart(2,"0"); return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+"_"+p(d.getHours())+"h"+p(d.getMinutes()); }
+  function baseName(){ const m = (state.mission||"inventaire").replace(/[^\p{L}\p{N}_-]+/gu,"_").slice(0,40); return m + "_" + stamp(); }
+  function consolidated(){
+    const map = new Map();
+    state.lines.forEach(l => { const e = map.get(l.code) || {qty:0, zones:new Set()}; e.qty += l.qty; e.zones.add(l.zone); map.set(l.code, e); });
+    return [...map.entries()].map(([code,e]) => [code, e.qty, [...e.zones].join(" ")]);
+  }
+  function detailRows(){ return state.lines.map(l => [l.zone, l.code, l.qty, l.src === "manuel" ? "Saisie manuelle" : "Scan", l.who || "", new Date(l.t).toLocaleString("fr-FR")]); }
+  async function saveFile(filename, data){
+    let dl = null; try{ if(window.claude) dl = await window.claude.use("downloads"); }catch(e){}
+    if(!dl){
+      try{
+        const blob = data instanceof Blob ? data : new Blob([data], {type: filename.endsWith(".csv") ? "text/csv" : "application/octet-stream"});
+        const file = new File([blob], filename, {type: blob.type || "application/octet-stream"});
+        if(navigator.canShare && navigator.canShare({files:[file]})){
+          try{ await navigator.share({files:[file], title: filename}); flash("Fichier partagé : " + filename, "ok"); return; }
+          catch(e){ if(e && e.name === "AbortError"){ flash("Partage annulé : fichier enregistré dans Téléchargements.", ""); } }
+        }
+        const url = URL.createObjectURL(blob), a = document.createElement("a");
+        a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        flash("Fichier enregistré dans Téléchargements : " + filename, "ok");
+      }catch(e){ flash("Export impossible sur cet appareil.", "bad"); }
+      return;
+    }
+    try{ await dl.save({filename, data}); flash("Fichier exporté : " + filename, "ok"); }
+    catch(e){ if(e && e.code === "declined") flash("Export annulé.", ""); else flash("Export impossible (" + (e && e.code || "erreur") + ").", "bad"); }
+  }
+  async function exportXlsx(){
+    if(!window.XLSX){ flash("Module Excel non chargé : utilise l’export CSV.", "bad"); return; }
+    const wb = XLSX.utils.book_new();
+    const d = XLSX.utils.aoa_to_sheet([["Zone","Code","Quantité","Mode","Compteur","Date et heure"], ...detailRows()]);
+    const c = XLSX.utils.aoa_to_sheet([["Code","Quantité comptée","Zones"], ...consolidated()]);
+    const fixCodeCol = (ws, col) => Object.keys(ws).forEach(k => { if(k[0] !== "!" && new RegExp("^"+col+"\\d+$").test(k)){ ws[k].t = "s"; ws[k].v = String(ws[k].v); ws[k].z = "@"; } });
+    fixCodeCol(d,"B"); fixCodeCol(c,"A");
+    d["!cols"] = [{wch:8},{wch:18},{wch:10},{wch:16},{wch:18},{wch:20}]; c["!cols"] = [{wch:18},{wch:16},{wch:30}];
+    XLSX.utils.book_append_sheet(wb, c, "Consolidé");
+    XLSX.utils.book_append_sheet(wb, d, "Détail par zone");
+    const buf = XLSX.write(wb, {bookType:"xlsx", type:"array"});
+    await saveFile(baseName() + ".xlsx", new Blob([buf]));
+  }
+  async function exportCsv(){
+    const rows = [["code","quantite","zones"], ...consolidated()];
+    const csv = "\uFEFF" + rows.map(r => r.map(v => { const s = String(v); return /[;"\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; }).join(";")).join("\r\n");
+    await saveFile(baseName() + "_consolide.csv", csv);
+  }
+
+  $("menuBtn").addEventListener("click", () => {
+    openSheet('<h2>Mission</h2>'+
+      '<div class="totals"><span><b class="num">'+state.zones.length+'</b> zones</span><span><b class="num">'+fmtLines(state.lines.length)+'</b></span><span><b class="num">'+sum(state.lines)+'</b> articles</span><span><b class="num">'+fmtPph(pphOf(state.lines))+'</b> PPH</span></div>'+
+      '<label>Nom du compteur<input id="mw" value="'+esc(state.counter)+'" autocomplete="off" placeholder="Prénom et nom"></label>'+
+      '<label>Nom du client ou de la mission<input id="mn" value="'+esc(state.mission)+'" autocomplete="off"></label>'+
+      '<label>Préfixe des étiquettes de zone<input id="mp" value="'+esc(state.prefix)+'" maxlength="4" autocomplete="off"></label>'+
+      '<div class="btnrow"><button class="btn" id="xB">Tester le bip</button></div>'+
+      '<div class="btnrow"><button class="btn primary" id="xX">Exporter Excel</button><button class="btn" id="xC">Exporter CSV</button></div>'+
+      '<p>Excel contient deux onglets : total par code (pour le rapprochement) et détail par zone. Les codes restent en texte.</p>'+
+      '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>');
+    const keep = () => { state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
+    $("xNo").onclick = () => { keep(); closeSheet(); };
+    $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
+    $("xX").onclick = () => { keep(); exportXlsx(); };
+    $("xC").onclick = () => { keep(); exportCsv(); };
+    $("xNew").onclick = () => { keep(); confirmSheet("Nouvelle mission ?", "Tout le comptage en cours ("+fmtLines(state.lines.length)+") sera effacé de ce terminal. Exporte d’abord.", "Tout effacer", () => {
+      const p = state.prefix, w = state.counter; state = blank(); state.prefix = p; state.counter = w; qtyBuf = ""; save(); render(); flash("Nouvelle mission prête. Scanne la première zone.", "");
+    }); };
+  });
+
+  render(); focusScan();
+  setInterval(updateStatus, 1500);
+  if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js").catch(()=>{}); }
+})();
+</script>
+</body>
+</html>

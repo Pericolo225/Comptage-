@@ -96,6 +96,14 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
 .status.typing{color:var(--act);font-weight:600}
 .pph{margin-left:auto;flex:none;font-family:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:18px;font-weight:700;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:0 8px}
 .status.typing .dot{background:var(--act)}
+.cam{position:relative;flex:1;min-height:140px;background:#000;border-radius:10px;overflow:hidden;display:none}
+.cam.on{display:block}
+.cam video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.cam .frame{position:absolute;left:8%;right:8%;top:28%;bottom:28%;border:3px solid var(--tag);border-radius:10px;box-shadow:0 0 0 999px rgba(0,0,0,.35)}
+.cam .camtools{position:absolute;right:8px;top:8px;display:flex;gap:6px}
+.cam .camtools button{background:rgba(0,0,0,.6);color:#fff;border:1px solid rgba(255,255,255,.45);border-radius:8px;padding:6px 12px;font-weight:600;font-size:15px}
+.cam .camhint{position:absolute;left:10px;right:10px;bottom:8px;color:#fff;font-size:14px;text-shadow:0 1px 3px #000}
+.manual .cambtn{background:var(--surface);color:var(--ink);border:1px solid var(--line);padding:0 12px}
 #scan{position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;border:0;padding:0}
 
 /* Sheets */
@@ -145,10 +153,17 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   <div class="flash" id="flash">Scanne l’étiquette de zone pour commencer.</div>
 
   <div class="list" id="list"></div>
+  <div class="cam" id="cam">
+    <video id="camVideo" playsinline muted autoplay></video>
+    <div class="frame"></div>
+    <div class="camtools"><button id="torchBtn" hidden>Lampe</button><button id="camClose">Arrêter</button></div>
+    <div class="camhint">Place le code-barres dans le cadre jaune. Pour plusieurs articles identiques, tape la quantité puis vise le code.</div>
+  </div>
 
   <div class="manual">
     <input id="manualCode" inputmode="numeric" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Code non scanné : tape-le ici" aria-label="Code article à saisir">
     <button id="manualAdd">Ajouter</button>
+    <button id="camBtn" class="cambtn">Caméra</button>
   </div>
 
   <div class="qty" id="qtyBox">
@@ -402,7 +417,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     state.lines.forEach(l => { const e = map.get(l.code) || {qty:0, zones:new Set()}; e.qty += l.qty; e.zones.add(l.zone); map.set(l.code, e); });
     return [...map.entries()].map(([code,e]) => [code, e.qty, [...e.zones].join(" ")]);
   }
-  function detailRows(){ return state.lines.map(l => [l.zone, l.code, l.qty, l.src === "manuel" ? "Saisie manuelle" : "Scan", l.who || "", new Date(l.t).toLocaleString("fr-FR")]); }
+  function detailRows(){ return state.lines.map(l => [l.zone, l.code, l.qty, l.src === "manuel" ? "Saisie manuelle" : l.src === "camera" ? "Caméra" : "Scan", l.who || "", new Date(l.t).toLocaleString("fr-FR")]); }
   async function saveFile(filename, data){
     let dl = null; try{ if(window.claude) dl = await window.claude.use("downloads"); }catch(e){}
     if(!dl){
@@ -462,7 +477,80 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     }); };
   });
 
+  /* Camera scanning */
+  const cam = {on:false, stream:null, timer:null, detector:null, zx:null, last:"", lastT:0, torch:false};
+  function onCamCode(code){
+    code = String(code || "").trim(); if(!code) return;
+    const now = Date.now();
+    if(code === cam.last && now - cam.lastT < 1500){ cam.lastT = now; return; }
+    cam.last = code; cam.lastT = now;
+    handleCode(code, "camera");
+  }
+  function loadScript(src){ return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); }); }
+  async function startCam(){
+    if(cam.on) return;
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ flash("Caméra indisponible sur cet appareil.", "bad"); return; }
+    try{
+      cam.stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}, width:{ideal:1280}, height:{ideal:720}}, audio:false});
+    }catch(e){
+      flash(e && e.name === "NotAllowedError" ? "Accès à la caméra refusé : autorise-le dans les réglages de l’appli." : "Impossible d’ouvrir la caméra.", "bad");
+      return;
+    }
+    const v = $("camVideo"); v.srcObject = cam.stream;
+    try{ await v.play(); }catch(e){}
+    cam.on = true; cam.last = ""; cam.torch = false;
+    $("cam").classList.add("on"); $("list").style.display = "none"; $("camBtn").textContent = "Arrêter";
+    $("torchBtn").textContent = "Lampe";
+    try{ const t = cam.stream.getVideoTracks()[0]; const caps = t.getCapabilities ? t.getCapabilities() : {}; $("torchBtn").hidden = !caps.torch; }catch(e){ $("torchBtn").hidden = true; }
+    cam.detector = null;
+    if("BarcodeDetector" in window){
+      try{
+        const want = ["ean_13","ean_8","upc_a","upc_e","code_128","code_39","code_93","itf","codabar","qr_code","data_matrix"];
+        const sup = await BarcodeDetector.getSupportedFormats();
+        const formats = want.filter(f => sup.includes(f));
+        if(formats.length) cam.detector = new BarcodeDetector({formats});
+      }catch(e){ cam.detector = null; }
+    }
+    if(cam.detector){
+      const loop = async () => {
+        if(!cam.on) return;
+        try{ if(v.readyState >= 2){ const r = await cam.detector.detect(v); if(r && r.length) onCamCode(r[0].rawValue); } }catch(e){}
+        if(cam.on) cam.timer = setTimeout(loop, 120);
+      };
+      loop();
+    } else {
+      try{ if(!window.ZXing) await loadScript("zxing.min.js"); }catch(e){ flash("Lecteur de codes non chargé : réessaie avec internet.", "bad"); stopCam(); return; }
+      try{
+        const hints = new Map(); hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+        cam.zx = new ZXing.BrowserMultiFormatReader(hints, 150);
+        cam.zx.decodeFromStream(cam.stream, v, (result) => { if(result && cam.on) onCamCode(result.getText()); }).catch(() => {});
+      }catch(e){ flash("Lecture caméra impossible sur cet appareil.", "bad"); stopCam(); return; }
+    }
+    flash("Caméra active : vise un code-barres.", "");
+    focusScan();
+  }
+  function stopCam(){
+    cam.on = false; clearTimeout(cam.timer);
+    try{ if(cam.zx) cam.zx.reset(); }catch(e){}
+    cam.zx = null;
+    if(cam.stream){ cam.stream.getTracks().forEach(t => t.stop()); cam.stream = null; }
+    $("camVideo").srcObject = null;
+    $("cam").classList.remove("on"); $("list").style.display = ""; $("camBtn").textContent = "Caméra";
+    focusScan();
+  }
+  ["camBtn","camClose","torchBtn"].forEach(id => $(id).addEventListener("pointerdown", e => e.preventDefault()));
+  $("camBtn").addEventListener("click", () => { cam.on ? stopCam() : startCam(); });
+  $("camClose").addEventListener("click", stopCam);
+  $("torchBtn").addEventListener("click", async () => {
+    const t = cam.stream && cam.stream.getVideoTracks()[0]; if(!t) return;
+    cam.torch = !cam.torch;
+    try{ await t.applyConstraints({advanced:[{torch: cam.torch}]}); $("torchBtn").textContent = cam.torch ? "Lampe off" : "Lampe"; }
+    catch(e){ cam.torch = false; }
+  });
+  document.addEventListener("visibilitychange", () => { if(document.hidden && cam.on) stopCam(); });
+
   render(); focusScan();
+  if(state.zone){ const n = linesOf(state.zone).length; flash("Zone " + state.zone + " en cours : " + fmtLines(n) + " déjà comptée" + (n>1?"s":"") + ".", "zone"); }
   setInterval(updateStatus, 1500);
   if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js").catch(()=>{}); }
 })();

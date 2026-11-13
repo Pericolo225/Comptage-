@@ -4,13 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Comptage par zones</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="xlsx.full.min.js"></script>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#FFD23F">
 <link rel="icon" href="icon-192.png">
 <style>
+@font-face{font-family:"Barlow";font-weight:400;font-display:swap;src:url(barlow-latin-400-normal.woff2) format("woff2")}
+@font-face{font-family:"Barlow";font-weight:500;font-display:swap;src:url(barlow-latin-500-normal.woff2) format("woff2")}
+@font-face{font-family:"Barlow";font-weight:600;font-display:swap;src:url(barlow-latin-600-normal.woff2) format("woff2")}
+@font-face{font-family:"Barlow Condensed";font-weight:600;font-display:swap;src:url(barlow-condensed-latin-600-normal.woff2) format("woff2")}
+@font-face{font-family:"Barlow Condensed";font-weight:700;font-display:swap;src:url(barlow-condensed-latin-700-normal.woff2) format("woff2")}
 :root{
   --bg:#E8ECF0; --surface:#FFFFFF; --ink:#18222E; --muted:#5B6878; --line:#CBD3DC;
   --tag:#FFD23F; --tagInk:#1E1C10; --act:#1F5FBF; --actInk:#FFFFFF; --ok:#2B7A4B; --bad:#B8322A; --key:#F4F6F8;
@@ -156,6 +159,14 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
 .seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .seg button{flex:1;border:0;background:var(--key);padding:10px;font-weight:600;font-size:15px}
 .seg button.on{background:var(--act);color:var(--actInk)}
+.chk{flex-direction:row!important;align-items:center;gap:10px;font-weight:500!important}
+.chk input{width:24px;height:24px;flex:none}
+.expst{border-radius:10px;padding:8px 12px;font-weight:600;font-size:15px}
+.expst.ok{background:color-mix(in srgb,var(--ok) 15%,var(--surface));color:var(--ok)}
+.expst.no{background:color-mix(in srgb,var(--bad) 12%,var(--surface));color:var(--bad)}
+.arch{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.arch .at{font-weight:700;font-size:17px}
+.arch .as{color:var(--muted);font-size:14px}
 .totals{display:flex;gap:16px;font-size:15px;color:var(--muted)}
 .totals b{color:var(--ink);font-size:20px}
 @media (prefers-reduced-motion:no-preference){ .flash{transition:background .15s} }
@@ -227,12 +238,39 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   let sheetOpen = false;
   let audioCtx = null;
 
-  function blank(){ return {mission:"", counter:"", prefix:"Z", zone:null, zones:[], lines:[], seq:1}; }
+  function blank(){ return {mission:"", counter:"", prefix:"Z", zone:null, zones:[], lines:[], seq:1, log:[], exportedSig:"", startedAt:new Date().toISOString()}; }
+  const ARCH = "comptage-archives", MAX_ARCH = 5;
   function load(){
     try{ const s = JSON.parse(localStorage.getItem(KEY)); if(s && Array.isArray(s.lines)) return Object.assign(blank(), s); }catch(e){}
     return blank();
   }
-  function save(){ try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){ flash("Sauvegarde impossible sur cet appareil : exporte régulièrement.", "bad"); } }
+  function loadArch(){ try{ const a = JSON.parse(localStorage.getItem(ARCH)); return Array.isArray(a) ? a : []; }catch(e){ return []; } }
+  function saveArch(a){ localStorage.setItem(ARCH, JSON.stringify(a)); }
+  function save(){
+    try{ localStorage.setItem(KEY, JSON.stringify(state)); return true; }
+    catch(e){
+      /* Memory full: drop the oldest archives that were already exported, then retry */
+      try{
+        let a = loadArch();
+        while(a.length){ const i = a.findIndex(x => x.exported); if(i < 0) break; a.splice(i,1); saveArch(a); try{ localStorage.setItem(KEY, JSON.stringify(state)); flash("Mémoire pleine : une ancienne archive déjà exportée a été supprimée.", "bad"); return true; }catch(e2){} }
+      }catch(e3){}
+      beep(false); flash("MÉMOIRE PLEINE : exporte la mission maintenant et supprime des archives.", "bad");
+      return false;
+    }
+  }
+  const sigOf = s => s.seq + ":" + s.lines.length + ":" + s.lines.reduce((a,l)=>a+l.qty,0) + ":" + (s.log||[]).length;
+  const isExported = () => !state.lines.length || state.exportedSig === sigOf(state);
+  function logAct(action, zone, code, oldQ, newQ){
+    state.log = state.log || [];
+    state.log.push({t:new Date().toISOString(), action, zone:zone||"", code:code||"", oldQ:(oldQ===undefined?"":oldQ), newQ:(newQ===undefined?"":newQ), who:state.counter||""});
+  }
+  /* GTIN check digit (EAN-8, UPC-A, EAN-13, GTIN-14). Other codes are accepted as they are. */
+  function eanValid(code){
+    if(!/^\d+$/.test(code) || ![8,12,13,14].includes(code.length)) return true;
+    const d = code.split("").map(Number), chk = d.pop();
+    let s = 0; d.reverse().forEach((n,i) => { s += n * (i % 2 === 0 ? 3 : 1); });
+    return (10 - s % 10) % 10 === chk;
+  }
 
   const fmtQty = n => n + (n>1 ? " articles" : " article");
   const fmtLines = n => n + (n>1 ? " lignes" : " ligne");
@@ -344,14 +382,39 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   window.addEventListener("blur", updateStatus);
   document.addEventListener("click", e => { if(!sheetOpen && !e.target.closest(".row, .manual, #manualBtn")) focusScan(); });
 
-  function handleCode(raw, src){
+  function codeError(code, src){
+    if(cam.on){ cam.block = code; cam.misses = 0; }
+    beep(false); flash("ERREUR : code-barres invalide, non compté.", "bad");
+    openSheet('<h2>Code invalide</h2><p class="num" style="font-size:20px;color:var(--ink)">'+esc(code)+'</p>'+
+      '<p>Le chiffre de contrôle ne correspond pas : ce code a été '+(src === "manuel" ? 'mal tapé' : 'mal lu')+'. Il n’a <b>pas</b> été compté. '+(src === "manuel" ? 'Vérifie le code sur l’étiquette et retape-le.' : 'Rescanne l’article.')+'</p>'+
+      '<div class="btnrow"><button class="btn primary" id="errOk">Compris</button></div>');
+    $("sheet").classList.add("errsheet");
+    $("errOk").onclick = () => { closeSheet(); if(src === "manuel"){ $("manualCode").value = code; } };
+  }
+  function handleCode(raw, src, force){
     const code = raw.replace(/\s+/g,"");
     if(zoneRegex().test(code)){ openZone(code.toUpperCase()); return; }
     if(!state.zone){ zoneError(code); return; }
+    if(state.check !== false && !eanValid(code)){ codeError(code, src); return; }
     const qty = qtyBuf === "" ? 1 : parseInt(qtyBuf,10);
     if(!qty){ beep(false); flash("Quantité 0 refusée : efface et retape.", "bad"); qtyBuf=""; renderQty(); return; }
+    const big = parseInt(state.bigQty,10) || 50;
+    if(!force && qty >= big){
+      beep(false);
+      openSheet('<h2>Quantité élevée</h2><p class="num" style="font-size:20px;color:var(--ink)">'+esc(code)+'</p>'+
+        '<p>Tu as tapé <b class="num" style="font-size:26px;color:var(--ink)">'+qty+'</b>. C’est bien la bonne quantité ?</p>'+
+        '<div class="btnrow"><button class="btn" id="bqNo">Corriger</button><button class="btn primary" id="bqOk">Confirmer '+qty+'</button></div>');
+      $("bqOk").onclick = () => { closeSheet(); handleCode(code, src, true); };
+      $("bqNo").onclick = () => {
+        closeSheet(); qtyBuf = ""; renderQty();
+        if(src === "manuel"){ $("manualCode").value = code; }
+        else if(state.confirm !== false){ cam.pending = code; cam.psrc = src; showPending(); }
+        flash("Retape la quantité" + (src === "manuel" ? ", puis « Ajouter »." : ", puis « Valider »."), "");
+      };
+      return;
+    }
     state.lines.push({id: state.seq++, zone: state.zone, code, qty, t: new Date().toISOString(), src: src || "scan", who: state.counter || ""});
-    qtyBuf = ""; save(); render(); beep(true);
+    qtyBuf = ""; if(!save()){ state.lines.pop(); state.seq--; render(); return; } render(); beep(true);
     flash("+" + qty + "   " + code + (src === "manuel" ? "   (saisi)" : ""), "ok");
   }
   function zoneError(code){
@@ -369,6 +432,9 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     const z = state.zone, zl = linesOf(z);
     state.zone = null; qtyBuf = ""; save(); render(); beep(true, "zone");
     flash("Zone " + z + " fermée : " + fmtLines(zl.length) + ", " + fmtQty(sum(zl)) + ". Scanne la zone suivante.", "zone");
+    if(state.autoBackup !== false && state.lines.length){
+      exportXlsx(state, {silent:true, suffix:"_sauvegarde"}).then(ok => { if(ok) flash("Zone " + z + " fermée (" + fmtQty(sum(zl)) + "). Sauvegarde Excel dans Téléchargements.", "zone"); });
+    }
   }
   function openZone(z){
     if(!state.zones.includes(z)) state.zones.push(z);
@@ -392,7 +458,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     if(!state.zone){ return; }
     const zl = linesOf(state.zone); const last = zl[zl.length-1];
     if(!last){ flash("Rien à annuler dans cette zone.", ""); return; }
-    state.lines = state.lines.filter(l => l.id !== last.id); save(); render();
+    state.lines = state.lines.filter(l => l.id !== last.id); logAct("Annulation du dernier scan", last.zone, last.code, last.qty, 0); save(); render();
     flash("Annulé : " + last.code + " (" + last.qty + ")", "");
   });
   $("list").addEventListener("click", e => { const r = e.target.closest(".row"); if(r) editLine(+r.dataset.id); });
@@ -440,8 +506,8 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
       '<label>Quantité<input id="eq" type="number" inputmode="numeric" min="1" value="'+l.qty+'"></label>'+
       '<div class="btnrow"><button class="btn danger" id="eDel">Supprimer</button><button class="btn" id="eNo">Fermer</button><button class="btn primary" id="eOk">Enregistrer</button></div>');
     $("eNo").onclick = done;
-    $("eDel").onclick = () => { state.lines = state.lines.filter(x => x.id !== id); save(); render(); flash("Ligne supprimée : " + l.code, ""); done(); };
-    $("eOk").onclick = () => { const q = parseInt($("eq").value,10); if(q>0){ l.qty = q; save(); render(); flash("Corrigé : " + l.code + " = " + q, "ok"); } done(); };
+    $("eDel").onclick = () => { state.lines = state.lines.filter(x => x.id !== id); logAct("Suppression de ligne", l.zone, l.code, l.qty, 0); save(); render(); flash("Ligne supprimée : " + l.code, ""); done(); };
+    $("eOk").onclick = () => { const q = parseInt($("eq").value,10); if(q>0 && q !== l.qty){ logAct("Correction de quantité", l.zone, l.code, l.qty, q); l.qty = q; save(); render(); flash("Corrigé : " + l.code + " = " + q, "ok"); } done(); };
   }
 
   /* Manual code field */
@@ -486,6 +552,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     $("sheet").querySelectorAll("[data-reset]").forEach(b => b.onclick = () => {
       const z = b.dataset.reset, n = linesOf(z).length;
       confirmSheet("Recompter " + z + " ?", "Les " + fmtLines(n) + " de cette zone seront effacées, puis la zone sera rouverte vide.", "Effacer et recompter", () => {
+        const gone = linesOf(z); logAct("Recomptage : zone vidée (" + fmtLines(gone.length) + ")", z, "", sum(gone), 0);
         state.lines = state.lines.filter(l => l.zone !== z); state.zone = z; save(); render(); flash("Zone " + z + " vidée : recomptage.", "zone");
       });
     });
@@ -495,46 +562,57 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
 
   /* Export */
   function stamp(){ const d = new Date(), p = n => String(n).padStart(2,"0"); return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+"_"+p(d.getHours())+"h"+p(d.getMinutes()); }
-  function baseName(){ const m = (state.mission||"inventaire").replace(/[^\p{L}\p{N}_-]+/gu,"_").slice(0,40); return m + "_" + stamp(); }
-  function consolidated(){
-    const map = new Map();
-    state.lines.forEach(l => { const e = map.get(l.code) || {qty:0, zones:new Set()}; e.qty += l.qty; e.zones.add(l.zone); map.set(l.code, e); });
+  function baseName(s){ s = s || state; const m = (s.mission||"inventaire").replace(/[^\p{L}\p{N}_-]+/gu,"_").slice(0,40); return m + "_" + stamp(); }
+  function consolidated(s){
+    s = s || state; const map = new Map();
+    s.lines.forEach(l => { const e = map.get(l.code) || {qty:0, zones:new Set()}; e.qty += l.qty; e.zones.add(l.zone); map.set(l.code, e); });
     return [...map.entries()].map(([code,e]) => [code, e.qty, [...e.zones].join(" ")]);
   }
-  function detailRows(){ return state.lines.map(l => [l.zone, l.code, l.qty, l.src === "manuel" ? "Saisie manuelle" : l.src === "camera" ? "Caméra" : "Scan", l.who || "", new Date(l.t).toLocaleString("fr-FR")]); }
-  async function saveFile(filename, data){
-    let dl = null; try{ if(window.claude) dl = await window.claude.use("downloads"); }catch(e){}
+  function detailRows(s){ return (s || state).lines.map(l => [l.zone, l.code, l.qty, l.src === "manuel" ? "Saisie manuelle" : l.src === "camera" ? "Caméra" : "Scan", l.who || "", new Date(l.t).toLocaleString("fr-FR")]); }
+  async function saveFile(filename, data, silent){
+    let dl = null; try{ if(window.claude && !silent) dl = await window.claude.use("downloads"); }catch(e){}
+    if(!dl && silent && window.claude) return false;
     if(!dl){
       try{
         const blob = data instanceof Blob ? data : new Blob([data], {type: filename.endsWith(".csv") ? "text/csv" : "application/octet-stream"});
         const file = new File([blob], filename, {type: blob.type || "application/octet-stream"});
-        if(navigator.canShare && navigator.canShare({files:[file]})){
-          try{ await navigator.share({files:[file], title: filename}); flash("Fichier partagé : " + filename, "ok"); return; }
+        if(!silent && navigator.canShare && navigator.canShare({files:[file]})){
+          try{ await navigator.share({files:[file], title: filename}); flash("Fichier partagé : " + filename, "ok"); return true; }
           catch(e){ if(e && e.name === "AbortError"){ flash("Partage annulé : fichier enregistré dans Téléchargements.", ""); } }
         }
         const url = URL.createObjectURL(blob), a = document.createElement("a");
         a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
         setTimeout(() => URL.revokeObjectURL(url), 5000);
-        flash("Fichier enregistré dans Téléchargements : " + filename, "ok");
-      }catch(e){ flash("Export impossible sur cet appareil.", "bad"); }
-      return;
+        if(!silent) flash("Fichier enregistré dans Téléchargements : " + filename, "ok");
+        return true;
+      }catch(e){ flash("Export impossible sur cet appareil.", "bad"); return false; }
     }
-    try{ await dl.save({filename, data}); flash("Fichier exporté : " + filename, "ok"); }
-    catch(e){ if(e && e.code === "declined") flash("Export annulé.", ""); else flash("Export impossible (" + (e && e.code || "erreur") + ").", "bad"); }
+    try{ await dl.save({filename, data}); flash("Fichier exporté : " + filename, "ok"); return true; }
+    catch(e){ if(e && e.code === "declined") flash("Export annulé.", ""); else flash("Export impossible (" + (e && e.code || "erreur") + ").", "bad"); return false; }
   }
-  async function exportXlsx(){
-    if(!window.XLSX){ flash("Module Excel non chargé : utilise l’export CSV.", "bad"); return; }
+  async function exportXlsx(s, opt){
+    s = s || state; opt = opt || {};
+    if(!window.XLSX){ if(!opt.silent) flash("Module Excel non chargé : utilise l’export CSV.", "bad"); return false; }
     const wb = XLSX.utils.book_new();
-    const d = XLSX.utils.aoa_to_sheet([["Zone","Code","Quantité","Mode","Compteur","Date et heure"], ...detailRows()]);
-    const c = XLSX.utils.aoa_to_sheet([["Code","Quantité comptée","Zones"], ...consolidated()]);
+    const d = XLSX.utils.aoa_to_sheet([["Zone","Code","Quantité","Mode","Compteur","Date et heure"], ...detailRows(s)]);
+    const c = XLSX.utils.aoa_to_sheet([["Code","Quantité comptée","Zones"], ...consolidated(s)]);
+    const j = XLSX.utils.aoa_to_sheet([["Date et heure","Action","Zone","Code","Ancienne quantité","Nouvelle quantité","Compteur"],
+      ...(s.log||[]).map(x => [new Date(x.t).toLocaleString("fr-FR"), x.action, x.zone, x.code, x.oldQ, x.newQ, x.who])]);
+    j["!cols"] = [{wch:20},{wch:34},{wch:8},{wch:18},{wch:12},{wch:12},{wch:18}];
+    fixCodeColJ(j);
     const fixCodeCol = (ws, col) => Object.keys(ws).forEach(k => { if(k[0] !== "!" && new RegExp("^"+col+"\\d+$").test(k)){ ws[k].t = "s"; ws[k].v = String(ws[k].v); ws[k].z = "@"; } });
     fixCodeCol(d,"B"); fixCodeCol(c,"A");
     d["!cols"] = [{wch:8},{wch:18},{wch:10},{wch:16},{wch:18},{wch:20}]; c["!cols"] = [{wch:18},{wch:16},{wch:30}];
     XLSX.utils.book_append_sheet(wb, c, "Consolidé");
     XLSX.utils.book_append_sheet(wb, d, "Détail par zone");
+    XLSX.utils.book_append_sheet(wb, j, "Journal");
     const buf = XLSX.write(wb, {bookType:"xlsx", type:"array"});
-    await saveFile(baseName() + ".xlsx", new Blob([buf]));
+    const sig = sigOf(s);
+    const ok = await saveFile(baseName(s) + (opt.suffix||"") + ".xlsx", new Blob([buf]), opt.silent);
+    if(ok && s === state){ state.exportedSig = sig; save(); }
+    return ok;
   }
+  function fixCodeColJ(ws){ Object.keys(ws).forEach(k => { if(/^D\d+$/.test(k)){ ws[k].t = "s"; ws[k].v = String(ws[k].v); ws[k].z = "@"; } }); }
   async function exportCsv(){
     const rows = [["code","quantite","zones"], ...consolidated()];
     const csv = "\uFEFF" + rows.map(r => r.map(v => { const s = String(v); return /[;"\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; }).join(";")).join("\r\n");
@@ -546,22 +624,98 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
       '<div class="totals"><span><b class="num">'+state.zones.length+'</b> zones</span><span><b class="num">'+fmtLines(state.lines.length)+'</b></span><span><b class="num">'+sum(state.lines)+'</b> articles</span><span><b class="num">'+fmtPph(pphOf(state.lines))+'</b> PPH</span></div>'+
       '<label>Nom du compteur<input id="mw" value="'+esc(state.counter)+'" autocomplete="off" placeholder="Prénom et nom"></label>'+
       '<label>Nom du client ou de la mission<input id="mn" value="'+esc(state.mission)+'" autocomplete="off"></label>'+
-      '<label style="flex-direction:row;align-items:center;gap:10px"><input id="mv" type="checkbox" style="width:24px;height:24px"'+(state.confirm === false ? '' : ' checked')+'> Valider chaque scan (quantité puis « Valider »)</label>'+
+      '<div class="expst '+(isExported() ? 'ok">Mission exportée : rien à perdre' : 'no">Mission pas encore exportée depuis la dernière modification')+'</div>'+
+      '<label class="chk"><input id="mv" type="checkbox"'+(state.confirm === false ? '' : ' checked')+'> Valider chaque scan (quantité puis « Valider »)</label>'+
+      '<label class="chk"><input id="mck" type="checkbox"'+(state.check === false ? '' : ' checked')+'> Refuser les codes EAN invalides (mal lus ou mal tapés)</label>'+
+      '<label class="chk"><input id="mab" type="checkbox"'+(state.autoBackup === false ? '' : ' checked')+'> Sauvegarde Excel automatique à chaque fermeture de zone</label>'+
+      '<label>Demander confirmation à partir de la quantité<input id="mbq" type="number" inputmode="numeric" min="2" value="'+(parseInt(state.bigQty,10)||50)+'"></label>'+
       '<label>Préfixe des étiquettes de zone<input id="mp" value="'+esc(state.prefix)+'" maxlength="4" autocomplete="off"></label>'+
       '<div class="btnrow"><button class="btn" id="xB">Tester le bip</button></div>'+
       '<div class="btnrow"><button class="btn primary" id="xX">Exporter Excel</button><button class="btn" id="xC">Exporter CSV</button></div>'+
-      '<p>Excel contient deux onglets : total par code (pour le rapprochement) et détail par zone. Les codes restent en texte.</p>'+
+      '<p>Excel contient trois onglets : total par code, détail par zone et journal des corrections ('+(state.log||[]).length+'). Les codes restent en texte.</p>'+
+      '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 6 du 13/11/2026</p>');
-    const keep = () => { state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
+      '<p style="font-size:13px">Version 7 du 13/11/2026</p>');
+    const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
-    $("xX").onclick = () => { keep(); exportXlsx(); };
+    $("xX").onclick = () => { keep(); exportXlsx().then(ok => { if(ok && sheetOpen) $("menuBtn").click(); }); };
+    $("xArch").onclick = () => { keep(); archSheet(); };
     $("xC").onclick = () => { keep(); exportCsv(); };
-    $("xNew").onclick = () => { keep(); confirmSheet("Nouvelle mission ?", "Tout le comptage en cours ("+fmtLines(state.lines.length)+") sera effacé de ce terminal. Exporte d’abord.", "Tout effacer", () => {
-      const p = state.prefix, w = state.counter; state = blank(); state.prefix = p; state.counter = w; qtyBuf = ""; save(); render(); flash("Nouvelle mission prête. Scanne la première zone.", "");
-    }); };
+    $("xNew").onclick = () => { keep(); newMissionSheet(); };
   });
+
+  /* Missions: archive instead of delete */
+  function settingsOf(s){ return {prefix:s.prefix, counter:s.counter, confirm:s.confirm, check:s.check, autoBackup:s.autoBackup, bigQty:s.bigQty}; }
+  function archiveCurrent(){
+    if(!state.lines.length && !(state.log||[]).length) return true;
+    const a = loadArch();
+    a.unshift({id: Date.now(), mission: state.mission, counter: state.counter, savedAt: new Date().toISOString(), exported: isExported(), data: state});
+    while(a.length > MAX_ARCH){ const i = a.map(x => x.exported).lastIndexOf(true); a.splice(i >= 0 ? i : a.length - 1, 1); }
+    try{ saveArch(a); return true; }
+    catch(e){
+      while(a.length > 1){ a.pop(); try{ saveArch(a); return true; }catch(e2){} }
+      return false;
+    }
+  }
+  function startNew(){
+    if(cam.pending){ beep(false); flash("Valide ou ignore d’abord le code " + cam.pending + ".", "bad"); return; }
+    if(!archiveCurrent()){ beep(false); flash("Archivage impossible (mémoire pleine) : exporte, puis supprime des archives.", "bad"); return; }
+    const keepS = settingsOf(state); state = Object.assign(blank(), keepS); qtyBuf = ""; save(); render(); closeSheet();
+    flash("Mission précédente archivée. Nouvelle mission prête : scanne la première zone.", "");
+  }
+  function newMissionSheet(){
+    if(!state.lines.length){ startNew(); return; }
+    const exp = isExported();
+    openSheet('<h2>Nouvelle mission ?</h2>'+
+      '<div class="expst '+(exp ? 'ok">Mission exportée.' : 'no">Attention : la mission en cours n’a pas été exportée depuis la dernière modification.')+'</div>'+
+      '<p>La mission en cours ('+fmtLines(state.lines.length)+', '+fmtQty(sum(state.lines))+') sera rangée dans « Missions archivées ». Les '+MAX_ARCH+' dernières missions sont conservées sur ce terminal.</p>'+
+      (exp ? '' : '<div class="btnrow"><button class="btn primary" id="nmX">Exporter Excel d’abord</button></div>')+
+      '<div class="btnrow"><button class="btn" id="nmNo">Annuler</button><button class="btn '+(exp ? 'primary' : 'danger')+'" id="nmOk">Archiver et commencer</button></div>');
+    $("nmNo").onclick = closeSheet;
+    $("nmOk").onclick = startNew;
+    if(!exp) $("nmX").onclick = () => exportXlsx().then(ok => { if(ok) newMissionSheet(); });
+  }
+  function archSheet(){
+    const a = loadArch();
+    const items = a.map(x => {
+      const n = x.data.lines.length, q = x.data.lines.reduce((s,l)=>s+l.qty,0);
+      return '<div class="arch"><div class="at">'+esc(x.mission || "Mission sans nom")+'</div>'+
+        '<div class="as">Archivée le '+new Date(x.savedAt).toLocaleString("fr-FR")+' · '+fmtLines(n)+' · '+fmtQty(q)+'<br>'+(x.exported ? 'Exportée' : '<b style="color:var(--bad)">Jamais exportée</b>')+'</div>'+
+        '<div class="btnrow"><button class="btn primary" data-ax="'+x.id+'">Exporter</button><button class="btn" data-ar="'+x.id+'">Restaurer</button><button class="btn danger" data-ad="'+x.id+'">Supprimer</button></div></div>';
+    }).join("");
+    openSheet('<h2>Missions archivées</h2>'+(items || '<p>Aucune mission archivée.</p>')+
+      '<div class="btnrow"><button class="btn" id="aBack">Retour</button></div>');
+    $("aBack").onclick = () => $("menuBtn").click();
+    const find = id => loadArch().find(x => x.id === +id);
+    $("sheet").querySelectorAll("[data-ax]").forEach(b => b.onclick = async () => {
+      const x = find(b.dataset.ax); if(!x) return;
+      if(await exportXlsx(x.data)){ const all = loadArch(); const y = all.find(z => z.id === x.id); if(y){ y.exported = true; y.data.exportedSig = sigOf(y.data); try{ saveArch(all); }catch(e){} } archSheet(); }
+    });
+    $("sheet").querySelectorAll("[data-ar]").forEach(b => b.onclick = () => {
+      const x = find(b.dataset.ar); if(!x) return;
+      confirmSheet("Restaurer « " + (x.mission || "Mission sans nom") + " » ?", "La mission en cours sera archivée, puis celle-ci redeviendra la mission active.", "Restaurer", () => {
+        if(!archiveCurrent()){ flash("Archivage impossible (mémoire pleine).", "bad"); return; }
+        const rest = loadArch().filter(y => y.id !== x.id); try{ saveArch(rest); }catch(e){}
+        state = Object.assign(blank(), x.data); qtyBuf = ""; save(); render();
+        flash("Mission « " + (x.mission || "sans nom") + " » restaurée.", "zone");
+      });
+    });
+    $("sheet").querySelectorAll("[data-ad]").forEach(b => b.onclick = () => {
+      const x = find(b.dataset.ad); if(!x) return;
+      confirmSheet("Supprimer définitivement ?", (x.exported ? "" : "Cette mission n’a JAMAIS été exportée. ") + "« " + (x.mission || "Mission sans nom") + " » sera effacée de ce terminal.", "Supprimer", () => {
+        try{ saveArch(loadArch().filter(y => y.id !== x.id)); }catch(e){}
+        flash("Archive supprimée.", "");
+      });
+    });
+  }
+
+  /* Keep the screen on while counting, and ask Android not to clear storage */
+  let wakeLock = null;
+  async function keepAwake(){ try{ if("wakeLock" in navigator && document.visibilityState === "visible") wakeLock = await navigator.wakeLock.request("screen"); }catch(e){} }
+  document.addEventListener("visibilitychange", () => { if(document.visibilityState === "visible") keepAwake(); });
+  keepAwake();
+  try{ navigator.storage && navigator.storage.persist && navigator.storage.persist(); }catch(e){}
 
   /* Camera scanning */
   /* A code must be read on 2 frames in a row, then waits for "Valider".
@@ -578,11 +732,16 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     receiveScan(code, "camera");
   }
   /* Every article scan (scanner or camera) waits for "Valider" when the option is on */
+  let lastScan = {code:"", t:0};
   function receiveScan(raw, src){
     const code = String(raw).replace(/\s+/g, "");
     if(!code || sheetOpen) return;
+    const now = Date.now();
+    if(src === "scan" && code === lastScan.code && now - lastScan.t < 500){ lastScan.t = now; return; }
+    lastScan = {code, t: now};
     if(cam.pending){ beep(false); flash("Valide ou ignore d’abord le code " + cam.pending + ".", "bad"); return; }
     if(zoneRegex().test(code) || !state.zone || state.confirm === false){ handleCode(code, src); return; }
+    if(state.check !== false && !eanValid(code)){ codeError(code, src); return; }
     cam.pending = code; cam.psrc = src; beep(true); showPending();
     flash("Code lu : tape la quantité si besoin, puis « Valider ».", "");
   }

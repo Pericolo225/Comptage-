@@ -167,6 +167,17 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
 .arch{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
 .arch .at{font-weight:700;font-size:17px}
 .arch .as{color:var(--muted);font-size:14px}
+.alarm{animation:alarmbg .5s steps(2) infinite}
+@keyframes alarmbg{0%{border-top-color:var(--bad)}100%{border-top-color:var(--tag)}}
+.cf{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.cf.done{border-color:var(--ok)}
+.cf .ct{font-weight:700;font-size:18px}
+.cf .cs{color:var(--muted);font-size:14px}
+.team{font-size:14px;border-radius:8px;padding:4px 10px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+.team.ok{border-color:var(--ok)}
+.team.wait{border-color:var(--tag)}
+.team.err{border-color:var(--bad);color:var(--bad);font-weight:600}
+.team b{color:var(--ink)}
 .totals{display:flex;gap:16px;font-size:15px;color:var(--muted)}
 .totals b{color:var(--ink);font-size:20px}
 @media (prefers-reduced-motion:no-preference){ .flash{transition:background .15s} }
@@ -190,6 +201,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   </div>
 
   <div class="status" id="status"><span class="dot"></span><span id="statusTxt">Prêt à scanner</span><span class="pph" id="pph" title="Pièces par heure sur la mission"></span></div>
+  <button class="team" id="team" hidden style="text-align:left"></button>
   <div class="flash" id="flash">Scanne l’étiquette de zone pour commencer.</div>
 
   <div class="list" id="list"></div>
@@ -238,7 +250,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   let sheetOpen = false;
   let audioCtx = null;
 
-  function blank(){ return {mission:"", counter:"", prefix:"Z", zone:null, zones:[], lines:[], seq:1, log:[], exportedSig:"", startedAt:new Date().toISOString()}; }
+  function blank(){ return {mission:"", counter:"", prefix:"Z", zone:null, zones:[], lines:[], seq:1, log:[], closed:[], merged:[], exportedSig:"", startedAt:new Date().toISOString()}; }
   const ARCH = "comptage-archives", MAX_ARCH = 5;
   function load(){
     try{ const s = JSON.parse(localStorage.getItem(KEY)); if(s && Array.isArray(s.lines)) return Object.assign(blank(), s); }catch(e){}
@@ -247,7 +259,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   function loadArch(){ try{ const a = JSON.parse(localStorage.getItem(ARCH)); return Array.isArray(a) ? a : []; }catch(e){ return []; } }
   function saveArch(a){ localStorage.setItem(ARCH, JSON.stringify(a)); }
   function save(){
-    try{ localStorage.setItem(KEY, JSON.stringify(state)); return true; }
+    try{ localStorage.setItem(KEY, JSON.stringify(state)); if(state.team) scheduleSync(); return true; }
     catch(e){
       /* Memory full: drop the oldest archives that were already exported, then retry */
       try{
@@ -321,6 +333,20 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     }
     try{ navigator.vibrate && navigator.vibrate(ok ? 30 : [120,60,120]); }catch(e){}
   }
+  /* Insistent alarm, repeated until the sheet is closed */
+  let alarmTimer = null;
+  function alarmStart(){
+    alarmStop();
+    const play = () => {
+      const ctx = getCtx();
+      if(ctx){ try{ const t = ctx.currentTime + 0.01;
+        for(let i=0;i<4;i++){ tone(ctx, 950, t + i*0.2, 0.1, "sawtooth", 0.6); tone(ctx, 620, t + i*0.2 + 0.1, 0.1, "sawtooth", 0.6); }
+      }catch(e){} }
+      try{ navigator.vibrate && navigator.vibrate([300,100,300,100,300]); }catch(e){}
+    };
+    play(); alarmTimer = setInterval(play, 1200);
+  }
+  function alarmStop(){ if(alarmTimer){ clearInterval(alarmTimer); alarmTimer = null; try{ navigator.vibrate && navigator.vibrate(0); }catch(e){} } }
   function flash(msg, kind){ const f = $("flash"); f.className = "flash " + (kind||""); f.textContent = msg; }
 
   /* Render */
@@ -343,6 +369,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
       ).join("");
     }
     $("pph").textContent = "PPH " + fmtPph(pphOf(state.lines));
+    try{ renderTeam(); }catch(e){}
     $("who").textContent = state.counter ? "Compteur : " + state.counter : "Compteur : à renseigner dans Menu";
     renderQty();
   }
@@ -430,13 +457,49 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     if(cam.pending){ beep(false); flash("Valide ou ignore d’abord le code " + cam.pending + ".", "bad"); return; }
     if(!state.zone){ flash("Aucune zone ouverte.", ""); return; }
     const z = state.zone, zl = linesOf(z);
+    markClosed(z);
     state.zone = null; qtyBuf = ""; save(); render(); beep(true, "zone");
     flash("Zone " + z + " fermée : " + fmtLines(zl.length) + ", " + fmtQty(sum(zl)) + ". Scanne la zone suivante.", "zone");
     if(state.autoBackup !== false && state.lines.length){
       exportXlsx(state, {silent:true, suffix:"_sauvegarde"}).then(ok => { if(ok) flash("Zone " + z + " fermée (" + fmtQty(sum(zl)) + "). Sauvegarde Excel dans Téléchargements.", "zone"); });
     }
   }
-  function openZone(z){
+  function markClosed(z){ state.closed = state.closed || []; if(z && !state.closed.includes(z)) state.closed.push(z); }
+  function openZone(z, force){
+    if(cam.pending){ beep(false); flash("Valide ou ignore d’abord le code " + cam.pending + ".", "bad"); return; }
+    if(z === state.zone){ flash("Zone " + z + " déjà ouverte : continue le comptage.", "zone"); beep(true, "zone"); return; }
+    const tz = state.team && teamZones[z];
+    if(!force && tz && tz.device !== deviceId && !linesOf(z).length){
+      if(cam.on){ cam.block = z; cam.misses = 0; }
+      const who = tz.who || "un autre téléphone", open = tz.status === "open";
+      flash("ALERTE : zone " + z + (open ? " en cours chez " : " déjà fermée par ") + who + ".", "bad");
+      openSheet('<h2>Zone '+esc(z)+(open ? ' déjà en cours' : ' déjà comptée')+'</h2>'+
+        '<p><b>'+esc(who)+'</b> '+(open ? 'est en train de compter cette zone' : 'a déjà compté et fermé cette zone')+' (depuis '+new Date(tz.at).toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"})+'). La compter aussi ici risque de doubler le stock.</p>'+
+        '<div class="btnrow"><button class="btn primary" id="roNo">Ne pas l’ouvrir</button></div>'+
+        '<div class="btnrow"><button class="btn danger" id="roOk">L’ouvrir quand même</button></div>');
+      $("sheet").classList.add("errsheet","alarm");
+      alarmStart();
+      $("roNo").onclick = () => { closeSheet(); flash("Zone " + z + " non ouverte.", ""); };
+      $("roOk").onclick = () => { closeSheet(); logAct("Zone ouverte malgré le comptage de " + who, z, "", "", ""); openZone(z, true); };
+      return;
+    }
+    if(!force && (state.closed || []).includes(z)){
+      if(cam.on){ cam.block = z; cam.misses = 0; }
+      const zl = linesOf(z);
+      flash("ALERTE : la zone " + z + " est déjà fermée.", "bad");
+      openSheet('<h2>Zone '+esc(z)+' déjà fermée</h2>'+
+        '<p>Cette zone a été comptée et fermée ('+fmtLines(zl.length)+', '+fmtQty(sum(zl))+'). La rouvrir permet d’<b>ajouter</b> des articles à ce comptage : risque de compter deux fois.</p>'+
+        '<p>Pour la refaire entièrement, utilise plutôt « Recompter » dans Zones.</p>'+
+        '<div class="btnrow"><button class="btn primary" id="roNo">Ne pas rouvrir</button></div>'+
+        '<div class="btnrow"><button class="btn danger" id="roOk">Rouvrir quand même</button></div>');
+      $("sheet").classList.add("errsheet","alarm");
+      alarmStart();
+      $("roNo").onclick = () => { closeSheet(); flash("Zone " + z + " laissée fermée.", ""); };
+      $("roOk").onclick = () => { closeSheet(); logAct("Réouverture d’une zone fermée", z, "", sum(zl), ""); openZone(z, true); };
+      return;
+    }
+    if(state.zone && linesOf(state.zone).length) markClosed(state.zone);
+    if(force) state.closed = (state.closed || []).filter(x => x !== z);
     if(!state.zones.includes(z)) state.zones.push(z);
     const already = linesOf(z).length;
     state.zone = z; qtyBuf = ""; save(); render(); beep(true, "zone");
@@ -454,6 +517,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     renderQty(); focusScan();
   });
   $("closeZoneBtn").addEventListener("click", closeZone);
+  $("team").addEventListener("click", () => teamSheet());
   $("undoBtn").addEventListener("click", () => {
     if(!state.zone){ return; }
     const zl = linesOf(state.zone); const last = zl[zl.length-1];
@@ -465,7 +529,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
 
   /* Sheets */
   function openSheet(html){ sheetOpen = true; $("sheet").innerHTML = html; $("veil").classList.add("open"); updateStatus(); }
-  function closeSheet(){ $("sheet").classList.remove("errsheet"); sheetOpen = false; $("veil").classList.remove("open"); $("sheet").innerHTML = ""; focusScan(); }
+  function closeSheet(){ alarmStop(); $("sheet").classList.remove("errsheet","alarm"); sheetOpen = false; $("veil").classList.remove("open"); $("sheet").innerHTML = ""; focusScan(); }
   $("veil").addEventListener("click", e => { if(e.target.id === "veil") closeSheet(); });
   function confirmSheet(title, text, label, fn){
     openSheet('<h2>'+esc(title)+'</h2><p>'+esc(text)+'</p><div class="btnrow"><button class="btn" id="cNo">Garder</button><button class="btn danger" id="cYes">'+esc(label)+'</button></div>');
@@ -553,6 +617,8 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
       const z = b.dataset.reset, n = linesOf(z).length;
       confirmSheet("Recompter " + z + " ?", "Les " + fmtLines(n) + " de cette zone seront effacées, puis la zone sera rouverte vide.", "Effacer et recompter", () => {
         const gone = linesOf(z); logAct("Recomptage : zone vidée (" + fmtLines(gone.length) + ")", z, "", sum(gone), 0);
+        if(state.zone && state.zone !== z && linesOf(state.zone).length) markClosed(state.zone);
+        state.closed = (state.closed || []).filter(x => x !== z);
         state.lines = state.lines.filter(l => l.zone !== z); state.zone = z; save(); render(); flash("Zone " + z + " vidée : recomptage.", "zone");
       });
     });
@@ -606,6 +672,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     XLSX.utils.book_append_sheet(wb, c, "Consolidé");
     XLSX.utils.book_append_sheet(wb, d, "Détail par zone");
     XLSX.utils.book_append_sheet(wb, j, "Journal");
+    (s.extraSheets || []).forEach(x => { const ws = XLSX.utils.aoa_to_sheet(x.aoa); ws["!cols"] = [{wch:22},{wch:14},{wch:12},{wch:40}]; XLSX.utils.book_append_sheet(wb, ws, x.name); });
     const buf = XLSX.write(wb, {bookType:"xlsx", type:"array"});
     const sig = sigOf(s);
     const ok = await saveFile(baseName(s) + (opt.suffix||"") + ".xlsx", new Blob([buf]), opt.silent);
@@ -633,14 +700,18 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
       '<div class="btnrow"><button class="btn" id="xB">Tester le bip</button></div>'+
       '<div class="btnrow"><button class="btn primary" id="xX">Exporter Excel</button><button class="btn" id="xC">Exporter CSV</button></div>'+
       '<p>Excel contient trois onglets : total par code, détail par zone et journal des corrections ('+(state.log||[]).length+'). Les codes restent en texte.</p>'+
+      '<div class="btnrow"><button class="btn primary" id="xTeam">Équipe en ligne'+(state.team ? ' ('+esc(state.team.code)+')' : '')+'</button></div>'+
+      '<div class="btnrow"><button class="btn" id="xMerge">Fusionner l’export d’un autre téléphone</button></div>'+
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 7 du 13/11/2026</p>');
+      '<p style="font-size:13px">Version 9 du 14/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
     $("xX").onclick = () => { keep(); exportXlsx().then(ok => { if(ok && sheetOpen) $("menuBtn").click(); }); };
     $("xArch").onclick = () => { keep(); archSheet(); };
+    $("xMerge").onclick = () => { keep(); pickMergeFile(); };
+    $("xTeam").onclick = () => { keep(); teamSheet(); };
     $("xC").onclick = () => { keep(); exportCsv(); };
     $("xNew").onclick = () => { keep(); newMissionSheet(); };
   });
@@ -661,7 +732,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   function startNew(){
     if(cam.pending){ beep(false); flash("Valide ou ignore d’abord le code " + cam.pending + ".", "bad"); return; }
     if(!archiveCurrent()){ beep(false); flash("Archivage impossible (mémoire pleine) : exporte, puis supprime des archives.", "bad"); return; }
-    const keepS = settingsOf(state); state = Object.assign(blank(), keepS); qtyBuf = ""; save(); render(); closeSheet();
+    const keepS = settingsOf(state); stopTeam(); state = Object.assign(blank(), keepS); qtyBuf = ""; save(); render(); closeSheet();
     flash("Mission précédente archivée. Nouvelle mission prête : scanne la première zone.", "");
   }
   function newMissionSheet(){
@@ -697,7 +768,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
       confirmSheet("Restaurer « " + (x.mission || "Mission sans nom") + " » ?", "La mission en cours sera archivée, puis celle-ci redeviendra la mission active.", "Restaurer", () => {
         if(!archiveCurrent()){ flash("Archivage impossible (mémoire pleine).", "bad"); return; }
         const rest = loadArch().filter(y => y.id !== x.id); try{ saveArch(rest); }catch(e){}
-        state = Object.assign(blank(), x.data); qtyBuf = ""; save(); render();
+        stopTeam(); state = Object.assign(blank(), x.data); qtyBuf = ""; save(); render(); teamBoot();
         flash("Mission « " + (x.mission || "sans nom") + " » restaurée.", "zone");
       });
     });
@@ -708,6 +779,348 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
         flash("Archive supprimée.", "");
       });
     });
+  }
+
+  /* Merge the Excel export of another device */
+  function parseFrDate(v){
+    if(v instanceof Date) return v.toISOString();
+    const m = String(v||"").match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\D+(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    if(!m) return new Date().toISOString();
+    return new Date(+m[3], +m[2]-1, +m[1], +m[4], +m[5], +(m[6]||0)).toISOString();
+  }
+  function hashStr(s){ let x = 5381; for(let i=0;i<s.length;i++) x = ((x << 5) + x + s.charCodeAt(i)) | 0; return (x >>> 0).toString(36); }
+  function pickMergeFile(){
+    const inp = document.createElement("input");
+    inp.type = "file"; inp.accept = ".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    inp.onchange = async () => {
+      const f = inp.files && inp.files[0]; if(!f) return;
+      try{ readMerge(f.name, await f.arrayBuffer()); }
+      catch(e){ beep(false); flash("Fichier illisible : choisis l’export Excel de l’autre téléphone.", "bad"); }
+    };
+    inp.click();
+  }
+  function readMerge(name, buf){
+    if(!window.XLSX){ flash("Module Excel non chargé.", "bad"); return; }
+    const wb = XLSX.read(new Uint8Array(buf), {type:"array"});
+    const ws = wb.Sheets["Détail par zone"];
+    if(!ws){ beep(false); openSheet('<h2>Fichier non reconnu</h2><p>Il faut l’export <b>Excel</b> de l’appli (avec l’onglet « Détail par zone »). Un export CSV ne contient pas les zones.</p><div class="btnrow"><button class="btn primary" id="mfOk">Compris</button></div>'); $("sheet").classList.add("errsheet"); $("mfOk").onclick = closeSheet; return; }
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:""});
+    const hd = (rows.shift() || []).map(x => String(x).trim());
+    const ix = n => hd.indexOf(n);
+    const iZ = ix("Zone"), iC = ix("Code"), iQ = ix("Quantité"), iM = ix("Mode"), iW = ix("Compteur"), iT = ix("Date et heure");
+    if(iZ < 0 || iC < 0 || iQ < 0){ beep(false); flash("Colonnes Zone, Code ou Quantité introuvables.", "bad"); return; }
+    const lines = [];
+    rows.forEach(r => {
+      const zone = String(r[iZ]||"").trim().toUpperCase(), code = String(r[iC]||"").trim(), qty = parseInt(r[iQ],10);
+      if(!zone || !code || !(qty > 0)) return;
+      const mode = String(iM >= 0 ? r[iM] : "");
+      lines.push({zone, code, qty, src: /manuelle/i.test(mode) ? "manuel" : /cam/i.test(mode) ? "camera" : "scan",
+        who: String(iW >= 0 ? r[iW] : "").trim(), t: parseFrDate(iT >= 0 ? r[iT] : "")});
+    });
+    if(!lines.length){ beep(false); flash("Aucune ligne de comptage dans ce fichier.", "bad"); return; }
+    const jws = wb.Sheets["Journal"];
+    const jrows = jws ? XLSX.utils.sheet_to_json(jws, {header:1, raw:true, defval:""}).slice(1).filter(r => r[1]) : [];
+    const fp = hashStr(lines.map(l => l.zone+"|"+l.code+"|"+l.qty+"|"+l.t).join(";"));
+    mergeSheet({name, lines, jrows, fp});
+  }
+  function mergeSheet(imp, choices){
+    choices = choices || {};
+    const already = (state.merged || []).find(m => m.fp === imp.fp);
+    const zonesImp = [...new Set(imp.lines.map(l => l.zone))].sort();
+    const conflicts = zonesImp.filter(z => linesOf(z).length);
+    const whoImp = [...new Set(imp.lines.map(l => l.who).filter(Boolean))].join(", ") || "inconnu";
+    const allChosen = conflicts.every(z => choices[z]);
+    const cf = conflicts.map(z => {
+      const mine = linesOf(z), theirs = imp.lines.filter(l => l.zone === z);
+      const opt = (v, lbl) => '<button class="btn'+(choices[z] === v ? ' primary' : '')+'" data-cz="'+esc(z)+'" data-cv="'+v+'">'+lbl+'</button>';
+      return '<div class="cf'+(choices[z] ? ' done' : '')+'"><div class="ct num">'+esc(z)+' comptée sur les deux téléphones</div>'+
+        '<div class="cs">Ce téléphone : '+fmtLines(mine.length)+', '+fmtQty(sum(mine))+'<br>Fichier importé : '+fmtLines(theirs.length)+', '+fmtQty(sum(theirs))+'</div>'+
+        '<div class="btnrow">'+opt("mine","Garder la mienne")+opt("theirs","Garder l’importée")+'</div><div class="btnrow">'+opt("both","Additionner les deux")+'</div></div>';
+    }).join("");
+    openSheet('<h2>Fusionner une mission</h2>'+
+      (state.team ? '<div class="expst no">Tu es en équipe en ligne : les scans des autres téléphones sont déjà en ligne. Utilise plutôt « Exporter toute l’équipe » pour ne pas les compter deux fois.</div>' : '')+
+      (already ? '<div class="expst no">Ce fichier a déjà été fusionné le '+new Date(already.at).toLocaleString("fr-FR")+'. Le fusionner encore doublerait les quantités.</div>' : '')+
+      '<p><b>'+esc(imp.name)+'</b><br>Compteur(s) : '+esc(whoImp)+'<br>'+zonesImp.length+' zones · '+fmtLines(imp.lines.length)+' · '+fmtQty(sum(imp.lines))+'</p>'+
+      '<p>Zones : <span class="num">'+zonesImp.map(esc).join(" ")+'</span></p>'+
+      (conflicts.length ? '<div class="expst no">'+conflicts.length+' zone'+(conflicts.length>1?'s':'')+' en double : choisis pour chacune.</div>'+cf : '<div class="expst ok">Aucune zone en double.</div>')+
+      '<div class="btnrow"><button class="btn" id="mgNo">Annuler</button><button class="btn '+(already ? 'danger' : 'primary')+'" id="mgOk"'+(allChosen ? '' : ' disabled style="opacity:.5"')+'>'+(already ? 'Fusionner quand même' : 'Fusionner')+'</button></div>');
+    $("sheet").querySelectorAll("[data-cz]").forEach(b => b.onclick = () => { choices[b.dataset.cz] = b.dataset.cv; mergeSheet(imp, choices); });
+    $("mgNo").onclick = closeSheet;
+    $("mgOk").onclick = () => { if(allChosen) applyMerge(imp, choices, zonesImp); };
+  }
+  function applyMerge(imp, choices, zonesImp){
+    const backup = JSON.stringify(state);
+    let added = 0;
+    zonesImp.forEach(z => {
+      const c = choices[z];
+      if(c === "mine") return;
+      if(c === "theirs"){ const gone = linesOf(z); logAct("Fusion : zone remplacée par l’import", z, "", sum(gone), sum(imp.lines.filter(l => l.zone === z))); state.lines = state.lines.filter(l => l.zone !== z); }
+      imp.lines.filter(l => l.zone === z).forEach(l => { state.lines.push(Object.assign({id: state.seq++}, l)); added++; });
+      if(!state.zones.includes(z)) state.zones.push(z);
+      if(z !== state.zone) markClosed(z);
+    });
+    state.log = state.log || [];
+    imp.jrows.forEach(r => { state.log.push({t: parseFrDate(r[0]), action: "[importé] " + r[1], zone: String(r[2]||""), code: String(r[3]||""), oldQ: r[4], newQ: r[5], who: String(r[6]||"")}); });
+    logAct("Fusion de « " + imp.name + " » : " + fmtLines(added) + " ajoutées", "", "", "", "");
+    state.merged = state.merged || []; state.merged.push({fp: imp.fp, file: imp.name, at: new Date().toISOString(), n: added});
+    state.zones.sort();
+    if(!save()){ state = JSON.parse(backup); render(); return; }
+    closeSheet(); render(); beep(true, "zone");
+    flash("Fusion réussie : " + fmtLines(added) + " ajoutées. Total mission : " + fmtQty(sum(state.lines)) + ".", "ok");
+  }
+
+  /* ===== Équipe en ligne (Firebase) =====
+     Each device counts locally first; changes are diffed against what was already
+     sent (state.sync) and written to Firestore, which queues them while offline. */
+  const FB_CONFIG = {
+    apiKey: "AIzaSyArqFA59XsNhjbiSQajaNloU9_eJgOpowA",
+    authDomain: "comptage-inventaire.firebaseapp.com",
+    projectId: "comptage-inventaire",
+    storageBucket: "comptage-inventaire.firebasestorage.app",
+    messagingSenderId: "186328117651",
+    appId: "1:186328117651:web:e47a0ff739b7175e213866"
+  };
+  const DEV_KEY = "comptage-device", PEND_KEY = "comptage-pending";
+  const deviceId = (() => { let d = null; try{ d = localStorage.getItem(DEV_KEY); }catch(e){} if(!d){ d = Math.random().toString(36).slice(2,10); try{ localStorage.setItem(DEV_KEY, d); }catch(e){} } return d; })();
+  let fbP = null, db = null, fbUser = null, teamZones = {}, teamDevices = {}, unsubs = [], syncTimer = null, inflight = 0, lastErr = "", lastDevW = 0, syncing = false;
+  const getPending = () => { try{ return parseInt(localStorage.getItem(PEND_KEY),10) || 0; }catch(e){ return 0; } };
+  const setPending = n => { try{ localStorage.setItem(PEND_KEY, String(Math.max(0, n))); }catch(e){} };
+  const saveRaw = () => { try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){} };
+  function errMsg(e){
+    const c = (e && (e.code || "")) + " " + (e && e.message || "");
+    if(/api-key|API key/i.test(c)) return "Configuration Firebase incorrecte (clé API).";
+    if(/operation-not-allowed|admin-restricted/i.test(c)) return "Connexion anonyme non activée dans Firebase.";
+    if(/unauthorized-domain|requests-from-referer|referer/i.test(c)) return "Domaine non autorisé dans Firebase.";
+    if(/permission-denied|insufficient permissions/i.test(c)) return "Accès refusé : vérifie les règles de sécurité Firestore.";
+    if(/unavailable|network|offline|failed-precondition/i.test(c)) return "Pas de connexion internet.";
+    if(/not-found/i.test(c)) return "Base de données introuvable.";
+    return "Erreur : " + (e && (e.code || e.message) || "inconnue");
+  }
+  function fbInit(){
+    if(fbP) return fbP;
+    fbP = (async () => {
+      if(!window.firebase || !firebase.firestore){
+        await loadScript("firebase-app-compat.js"); await loadScript("firebase-auth-compat.js"); await loadScript("firebase-firestore-compat.js");
+      }
+      if(!firebase.apps.length) firebase.initializeApp(FB_CONFIG);
+      db = firebase.firestore();
+      try{ await db.enablePersistence({synchronizeTabs: true}); }catch(e){}
+      const auth = firebase.auth();
+      fbUser = auth.currentUser || await new Promise(res => { const u = auth.onAuthStateChanged(x => { u(); res(x); }); });
+      if(!fbUser){ const r = await auth.signInAnonymously(); fbUser = r.user; }
+      return db;
+    })();
+    fbP.catch(() => { fbP = null; });
+    return fbP;
+  }
+  const mref = code => db.collection("missions").doc(code || state.team.code);
+  function scheduleSync(){ if(!state.team) return; clearTimeout(syncTimer); syncTimer = setTimeout(runSync, 400); }
+  async function runSync(){
+    if(!state.team || syncing) return;
+    syncing = true;
+    try{ await fbInit(); }catch(e){ lastErr = errMsg(e); syncing = false; renderTeam(); return; }
+    try{
+      const code = state.team.code, m = mref(code);
+      const sync = state.sync = state.sync || {lines:{}, zones:{}, logN:0};
+      const ops = [], snapL = Object.assign({}, sync.lines), snapZ = Object.assign({}, sync.zones), cur = {};
+      state.lines.forEach(l => {
+        cur[l.id] = 1;
+        const sig = l.qty + "|" + l.code + "|" + l.zone;
+        if(snapL[l.id] !== sig){
+          ops.push(b => b.set(m.collection("lines").doc(deviceId + "_" + l.id), {zone:l.zone, code:l.code, qty:l.qty, src:l.src||"scan", who:l.who||"", t:l.t, device:deviceId}));
+          snapL[l.id] = sig;
+        }
+      });
+      Object.keys(snapL).forEach(id => { if(!cur[id]){ ops.push(b => b.delete(m.collection("lines").doc(deviceId + "_" + id))); delete snapL[id]; } });
+      let zoneOps = 0;
+      state.zones.forEach(z => {
+        if(z !== state.zone && !linesOf(z).length) return;
+        const st = z === state.zone ? "open" : "closed";
+        if(snapZ[z] !== st){ ops.push(b => b.set(m.collection("zones").doc(z), {status:st, device:deviceId, who:state.counter||"", at:new Date().toISOString()})); snapZ[z] = st; zoneOps++; }
+      });
+      const log = state.log || [];
+      for(let i = sync.logN || 0; i < log.length; i++){ const x = log[i]; ops.push(b => b.set(m.collection("log").doc(deviceId + "_" + i), Object.assign({device:deviceId}, x))); }
+      const now = Date.now();
+      if(ops.length && (zoneOps || now - lastDevW > 20000)){
+        lastDevW = now;
+        ops.push(b => b.set(m.collection("devices").doc(deviceId), {who:state.counter||"", lines:state.lines.length, qty:sum(state.lines), at:new Date().toISOString()}));
+      }
+      if(!ops.length){ syncing = false; renderTeam(); return; }
+      state.sync = {lines:snapL, zones:snapZ, logN:log.length}; saveRaw();
+      for(let i = 0; i < ops.length; i += 400){
+        const b = db.batch(); ops.slice(i, i + 400).forEach(f => f(b));
+        inflight++; setPending(getPending() + 1);
+        b.commit().then(() => { inflight--; setPending(getPending() - 1); lastErr = ""; renderTeam(); })
+                  .catch(e => { inflight--; lastErr = errMsg(e); renderTeam(); });
+      }
+    }catch(e){ lastErr = errMsg(e); }
+    syncing = false; renderTeam();
+  }
+  async function reconcile(){
+    if(!state.team) return;
+    await fbInit();
+    const snap = await mref().collection("lines").where("device", "==", deviceId).get({source:"server"});
+    const lines = {};
+    snap.forEach(d => { const x = d.data(); lines[d.id.slice(deviceId.length + 1)] = x.qty + "|" + x.code + "|" + x.zone; });
+    state.sync = {lines, zones:{}, logN:0}; saveRaw(); setPending(0); lastDevW = 0;
+    await runSync();
+  }
+  function stopTeam(){ unsubs.forEach(u => { try{ u(); }catch(e){} }); unsubs = []; teamZones = {}; teamDevices = {}; renderTeam(); }
+  function startListeners(){
+    stopTeam(); if(!state.team || !db) return;
+    const m = mref();
+    unsubs.push(m.collection("zones").onSnapshot(s => { teamZones = {}; s.forEach(d => { teamZones[d.id] = d.data(); }); }, e => { lastErr = errMsg(e); renderTeam(); }));
+    unsubs.push(m.collection("devices").onSnapshot(s => { teamDevices = {}; s.forEach(d => { teamDevices[d.id] = d.data(); }); renderTeam(); }, () => {}));
+  }
+  function teamBoot(){
+    renderTeam();
+    if(!state.team) return;
+    fbInit().then(() => {
+      startListeners();
+      if(getPending() > 0 && navigator.onLine) reconcile().catch(() => runSync()); else runSync();
+    }).catch(e => { lastErr = errMsg(e); renderTeam(); });
+  }
+  window.addEventListener("online", () => { if(state.team){ lastErr = ""; teamBoot(); } });
+  window.addEventListener("offline", renderTeam);
+  function teamTotals(){
+    let n = 0, q = 0, devs = 0;
+    Object.entries(teamDevices).forEach(([id, d]) => { if(id === deviceId) return; devs++; n += d.lines || 0; q += d.qty || 0; });
+    return {devs: devs + 1, n: n + state.lines.length, q: q + sum(state.lines)};
+  }
+  function renderTeam(){
+    const el = $("team"); if(!el) return;
+    if(!state.team){ el.hidden = true; return; }
+    el.hidden = false;
+    const t = teamTotals();
+    let st, cls;
+    if(!navigator.onLine){ st = "hors ligne : " + (inflight || getPending() ? "envoi au retour du réseau" : "comptage enregistré"); cls = "wait"; }
+    else if(lastErr){ st = lastErr; cls = "err"; }
+    else if(inflight){ st = "envoi en cours…"; cls = "wait"; }
+    else { st = "synchronisé"; cls = "ok"; }
+    el.className = "team " + cls;
+    el.innerHTML = '<b class="num">Équipe ' + esc(state.team.code) + '</b> · ' + t.devs + ' app. · <span class="num">' + t.q + '</span> art. · ' + esc(st);
+  }
+  function genCode(){ const a = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let s = ""; const r = new Uint32Array(6); crypto.getRandomValues(r); r.forEach(x => { s += a[x % a.length]; }); return s; }
+  async function createTeam(){
+    flash("Création de la mission d’équipe…", "");
+    try{
+      await fbInit();
+      let code, tries = 0;
+      do{ code = genCode(); tries++; }while((await mref(code).get({source:"server"})).exists && tries < 5);
+      await mref(code).set({name: state.mission || "Mission", createdAt: new Date().toISOString(), createdBy: fbUser.uid});
+      state.team = {code, joinedAt: new Date().toISOString()}; state.sync = {lines:{}, zones:{}, logN:0}; lastErr = ""; lastDevW = 0;
+      save(); startListeners(); runSync(); teamSheet();
+      flash("Mission d’équipe créée : code " + code + ".", "ok");
+    }catch(e){ beep(false); flash(errMsg(e), "bad"); }
+  }
+  async function joinTeam(raw){
+    const code = String(raw || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if(code.length !== 6){ beep(false); flash("Le code mission contient 6 caractères.", "bad"); return; }
+    flash("Connexion à la mission " + code + "…", "");
+    try{
+      await fbInit();
+      const d = await mref(code).get({source:"server"});
+      if(!d.exists){ beep(false); flash("Code " + code + " inconnu : vérifie-le avec ton collègue.", "bad"); return; }
+      const go = () => {
+        if(state.lines.length && !archiveCurrent()){ flash("Archivage impossible (mémoire pleine).", "bad"); return; }
+        state = Object.assign(blank(), settingsOf(state));
+        state.mission = d.data().name || ""; state.team = {code, joinedAt: new Date().toISOString()}; state.sync = {lines:{}, zones:{}, logN:0};
+        lastErr = ""; lastDevW = 0; qtyBuf = ""; save(); render(); startListeners(); runSync(); teamSheet();
+        flash("Tu as rejoint la mission " + code + ". Scanne ta première zone.", "ok");
+      };
+      if(state.lines.length){
+        confirmSheet("Rejoindre " + code + " ?", "Ta mission actuelle (" + fmtLines(state.lines.length) + ") sera rangée dans les archives, puis tu commenceras à compter pour la mission d’équipe.", "Archiver et rejoindre", go);
+      } else go();
+    }catch(e){ beep(false); flash(errMsg(e), "bad"); }
+  }
+  function leaveTeam(){
+    confirmSheet("Quitter l’équipe ?", "Ce téléphone arrêtera d’envoyer ses scans. Le comptage reste sur le téléphone, et ce qui a déjà été envoyé reste en ligne.", "Quitter", () => {
+      state.team = null; state.sync = null; save(); stopTeam(); flash("Équipe quittée : comptage local uniquement.", "");
+    });
+  }
+  async function fetchTeam(){
+    await fbInit();
+    const m = mref();
+    let src = "server", ls, lg;
+    try{ [ls, lg] = await Promise.all([m.collection("lines").get({source:"server"}), m.collection("log").get({source:"server"})]); }
+    catch(e){ src = "cache"; [ls, lg] = await Promise.all([m.collection("lines").get({source:"cache"}), m.collection("log").get({source:"cache"})]); }
+    const lines = [], log = [];
+    ls.forEach(d => { const x = d.data(); if(x.device !== deviceId) lines.push({zone:x.zone, code:x.code, qty:x.qty, src:x.src, who:x.who || ("appareil " + x.device), t:x.t, device:x.device}); });
+    state.lines.forEach(l => lines.push(Object.assign({device:deviceId}, l, {who: l.who || state.counter || "moi"})));
+    lg.forEach(d => { const x = d.data(); if(x.device !== deviceId) log.push(x); });
+    (state.log || []).forEach(x => log.push(x));
+    lines.sort((a, b) => String(a.t).localeCompare(String(b.t)));
+    log.sort((a, b) => String(a.t).localeCompare(String(b.t)));
+    return {lines, log, src};
+  }
+  async function exportTeam(){
+    flash("Récupération des comptages de l’équipe…", "");
+    try{
+      const {lines, log, src} = await fetchTeam();
+      const byZone = {}, byWho = {};
+      lines.forEach(l => {
+        (byZone[l.zone] = byZone[l.zone] || {}); byZone[l.zone][l.who] = (byZone[l.zone][l.who] || 0) + l.qty;
+        const w = byWho[l.who] = byWho[l.who] || {n:0, q:0, z:new Set()}; w.n++; w.q += l.qty; w.z.add(l.zone);
+      });
+      const dbl = Object.entries(byZone).filter(([, w]) => Object.keys(w).length > 1);
+      const extra = [
+        {name: "Par compteur", aoa: [["Compteur", "Lignes", "Articles", "Zones"], ...Object.entries(byWho).map(([w, x]) => [w, x.n, x.q, [...x.z].sort().join(" ")])]},
+        {name: "Contrôles", aoa: [["Zone comptée par plusieurs compteurs", "Détail (articles par compteur)"],
+          ...(dbl.length ? dbl.map(([z, w]) => [z, Object.entries(w).map(([k, v]) => k + " : " + v).join(" | ")]) : [["Aucune zone en double", ""]])]}
+      ];
+      const s = {mission: (state.mission || "mission") + "_equipe_" + state.team.code, lines, log, extraSheets: extra};
+      const ok = await exportXlsx(s);
+      if(ok && src === "cache") flash("Export fait SANS réseau : les derniers scans des autres téléphones peuvent manquer.", "bad");
+      if(ok && dbl.length) flash("Export équipe fait. Attention : " + dbl.length + " zone(s) comptée(s) par plusieurs personnes (onglet Contrôles).", "bad");
+    }catch(e){ beep(false); flash(errMsg(e), "bad"); }
+  }
+  async function deleteOnline(){
+    flash("Suppression des données en ligne…", "");
+    try{
+      await fbInit();
+      const m = mref();
+      for(const c of ["lines", "log", "zones", "devices"]){
+        const s = await m.collection(c).get({source:"server"});
+        const docs = s.docs;
+        for(let i = 0; i < docs.length; i += 400){ const b = db.batch(); docs.slice(i, i + 400).forEach(d => b.delete(d.ref)); await b.commit(); }
+      }
+      await m.delete();
+      const code = state.team.code;
+      state.team = null; state.sync = null; save(); stopTeam(); closeSheet();
+      flash("Données en ligne de la mission " + code + " supprimées. Le comptage reste sur ce téléphone.", "ok");
+    }catch(e){ beep(false); flash(errMsg(e), "bad"); }
+  }
+  function teamSheet(){
+    if(!state.team){
+      openSheet('<h2>Équipe en ligne</h2>'+
+        '<p>Relie plusieurs téléphones à la même mission. Chacun ne voit que ses propres scans ; tout est envoyé en ligne (même plus tard si le réseau coupe) et tu peux exporter le travail de toute l’équipe dans un seul Excel.</p>'+
+        '<div class="btnrow"><button class="btn primary" id="tCreate">Créer une mission d’équipe</button></div>'+
+        '<label>Ou rejoindre avec le code de ton collègue<input id="tCode" class="num" maxlength="6" autocomplete="off" autocapitalize="characters" placeholder="Ex. K7P4QX" style="text-transform:uppercase;letter-spacing:3px"></label>'+
+        '<div class="btnrow"><button class="btn" id="tBack">Retour</button><button class="btn primary" id="tJoin">Rejoindre</button></div>');
+      $("tCreate").onclick = createTeam;
+      $("tJoin").onclick = () => joinTeam($("tCode").value);
+      $("tBack").onclick = () => $("menuBtn").click();
+      return;
+    }
+    const devs = Object.entries(teamDevices).map(([id, d]) =>
+      '<div class="zitem"><span class="zs" style="color:var(--ink)"><b>'+esc(id === deviceId ? (state.counter || "Ce téléphone") + " (ce téléphone)" : (d.who || "Appareil " + id))+'</b><br>'+
+      (id === deviceId ? fmtLines(state.lines.length) + " · " + fmtQty(sum(state.lines)) : fmtLines(d.lines || 0) + " · " + fmtQty(d.qty || 0) + " · vu " + (d.at ? new Date(d.at).toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"}) : "?"))+'</span></div>').join("");
+    const t = teamTotals();
+    openSheet('<h2>Équipe en ligne</h2>'+
+      '<p>Code mission à donner à ton collègue :</p><div class="num" style="font-size:44px;font-weight:700;letter-spacing:6px;text-align:center;background:var(--tag);color:var(--tagInk);border-radius:12px;padding:6px">'+esc(state.team.code)+'</div>'+
+      '<div class="totals"><span><b class="num">'+t.devs+'</b> appareils</span><span><b class="num">'+t.q+'</b> articles</span></div>'+
+      '<div class="team '+(lastErr ? 'err' : 'ok')+'" style="display:block">'+esc(lastErr || (navigator.onLine ? (inflight ? "Envoi en cours…" : "Tout est synchronisé.") : "Hors ligne : les scans partiront au retour du réseau."))+'</div>'+
+      (devs ? '<div class="zlist">'+devs+'</div>' : '')+
+      '<div class="btnrow"><button class="btn primary" id="tExp">Exporter toute l’équipe (Excel)</button></div>'+
+      '<div class="btnrow"><button class="btn" id="tSync">Resynchroniser</button><button class="btn" id="tLeave">Quitter l’équipe</button></div>'+
+      '<p style="font-size:14px">Après remise du rapport au client, supprime les données en ligne : elles restent sur les téléphones et dans tes exports.</p>'+
+      '<div class="btnrow"><button class="btn danger" id="tDel">Supprimer les données en ligne</button></div>'+
+      '<div class="btnrow"><button class="btn" id="tBack">Retour</button></div>');
+    $("tExp").onclick = exportTeam;
+    $("tSync").onclick = () => { lastErr = ""; flash("Resynchronisation…", ""); reconcile().then(() => { flash("Resynchronisation faite.", "ok"); teamSheet(); }).catch(e => flash(errMsg(e), "bad")); };
+    $("tLeave").onclick = leaveTeam;
+    $("tDel").onclick = () => confirmSheet("Supprimer les données en ligne ?", "Tous les scans de l’équipe pour la mission " + state.team.code + " seront effacés du serveur, pour tous les téléphones. Exporte toute l’équipe AVANT.", "Supprimer en ligne", deleteOnline);
+    $("tBack").onclick = () => $("menuBtn").click();
   }
 
   /* Keep the screen on while counting, and ask Android not to clear storage */
@@ -826,7 +1239,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   });
   document.addEventListener("visibilitychange", () => { if(document.hidden && cam.on) stopCam(); });
 
-  render(); focusScan();
+  render(); focusScan(); teamBoot();
   if(state.zone){ const n = linesOf(state.zone).length; flash("Zone " + state.zone + " en cours : " + fmtLines(n) + " déjà comptée" + (n>1?"s":"") + ".", "zone"); }
   setInterval(updateStatus, 1500);
   if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js").catch(()=>{}); }

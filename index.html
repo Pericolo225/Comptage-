@@ -103,6 +103,17 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
 .cam .camtools{position:absolute;right:8px;top:8px;display:flex;gap:6px}
 .cam .camtools button{background:rgba(0,0,0,.6);color:#fff;border:1px solid rgba(255,255,255,.45);border-radius:8px;padding:6px 12px;font-weight:600;font-size:15px}
 .cam .camhint{position:absolute;left:10px;right:10px;bottom:8px;color:#fff;font-size:14px;text-shadow:0 1px 3px #000}
+.cam .pending{position:absolute;left:8px;right:8px;bottom:8px;display:none;align-items:center;gap:8px;background:var(--surface);color:var(--ink);border:2px solid var(--tag);border-radius:12px;padding:8px}
+.cam.has-pending .pending{display:flex}
+.cam.has-pending .camhint{display:none}
+.cam.has-pending .frame{border-color:var(--ok)}
+.pending .pc{flex:1;min-width:0}
+.pending .pcode{font-family:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;font-size:22px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pending .pq{font-size:15px;color:var(--muted)}
+.pending .pq b{color:var(--act);font-size:20px}
+.pending button{border-radius:10px;padding:12px 14px;font-weight:700;font-size:16px}
+#camOk{background:var(--ok);color:#fff;border:0;padding:12px 18px}
+#camSkip{background:var(--key);color:var(--ink);border:1px solid var(--line)}
 .manual .cambtn{background:var(--surface);color:var(--ink);border:1px solid var(--line);padding:0 12px}
 #scan{position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;border:0;padding:0}
 
@@ -157,7 +168,8 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     <video id="camVideo" playsinline muted autoplay></video>
     <div class="frame"></div>
     <div class="camtools"><button id="torchBtn" hidden>Lampe</button><button id="camClose">Arrêter</button></div>
-    <div class="camhint">Place le code-barres dans le cadre jaune. Pour plusieurs articles identiques, tape la quantité puis vise le code.</div>
+    <div class="camhint">Vise le code-barres dans le cadre. Une fois lu, tape la quantité si besoin, puis « Valider ».</div>
+    <div class="pending"><div class="pc"><div class="pcode" id="pCode"></div><div class="pq" id="pQty"></div></div><button id="camSkip">Ignorer</button><button id="camOk">Valider</button></div>
   </div>
 
   <div class="manual">
@@ -277,7 +289,12 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     $("who").textContent = state.counter ? "Compteur : " + state.counter : "Compteur : à renseigner dans Menu";
     renderQty();
   }
+  function showPending(){
+    $("cam").classList.toggle("has-pending", !!cam.pending);
+    if(cam.pending){ $("pCode").textContent = cam.pending; $("pQty").innerHTML = "Quantité : <b>" + (qtyBuf || "1") + "</b>"; }
+  }
   function renderQty(){
+    try{ showPending(); }catch(e){}
     const set = qtyBuf !== "";
     $("qtyBox").classList.toggle("set", set);
     $("qtyVal").textContent = set ? "× " + qtyBuf : "1";
@@ -478,13 +495,32 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   });
 
   /* Camera scanning */
-  const cam = {on:false, stream:null, timer:null, detector:null, zx:null, last:"", lastT:0, torch:false};
+  /* A code must be read on 2 frames in a row, then waits for "Valider".
+     After that, the same code is ignored until it has left the frame for about 1 second. */
+  const cam = {on:false, stream:null, timer:null, detector:null, zx:null, torch:false, pending:"", block:"", cand:"", candN:0, misses:0};
   function onCamCode(code){
-    code = String(code || "").trim(); if(!code) return;
-    const now = Date.now();
-    if(code === cam.last && now - cam.lastT < 1500){ cam.lastT = now; return; }
-    cam.last = code; cam.lastT = now;
-    handleCode(code, "camera");
+    code = String(code || "").trim(); if(!code || !cam.on) return;
+    cam.misses = 0;
+    if(cam.pending || code === cam.block) return;
+    if(code !== cam.cand){ cam.cand = code; cam.candN = 1; return; }
+    if(++cam.candN < 2) return;
+    cam.cand = ""; cam.candN = 0;
+    if(zoneRegex().test(code)){ cam.block = code; handleCode(code, "camera"); return; }
+    cam.pending = code; beep(true); showPending();
+    flash("Code lu : tape la quantité si besoin, puis « Valider ».", "");
+  }
+  function onCamMiss(){
+    if(++cam.misses >= 8){ cam.block = ""; cam.cand = ""; cam.candN = 0; }
+  }
+  function camValidate(){
+    if(!cam.pending) return;
+    const c = cam.pending; cam.pending = ""; cam.block = c; cam.misses = 0;
+    handleCode(c, "camera"); showPending();
+  }
+  function camSkip(){
+    if(!cam.pending) return;
+    cam.block = cam.pending; cam.pending = ""; cam.misses = 0; qtyBuf = ""; renderQty();
+    flash("Code ignoré.", "");
   }
   function loadScript(src){ return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); }); }
   async function startCam(){
@@ -498,7 +534,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     }
     const v = $("camVideo"); v.srcObject = cam.stream;
     try{ await v.play(); }catch(e){}
-    cam.on = true; cam.last = ""; cam.torch = false;
+    cam.on = true; cam.torch = false; cam.pending = ""; cam.block = ""; cam.cand = ""; cam.candN = 0;
     $("cam").classList.add("on"); $("list").style.display = "none"; $("camBtn").textContent = "Arrêter";
     $("torchBtn").textContent = "Lampe";
     try{ const t = cam.stream.getVideoTracks()[0]; const caps = t.getCapabilities ? t.getCapabilities() : {}; $("torchBtn").hidden = !caps.torch; }catch(e){ $("torchBtn").hidden = true; }
@@ -514,7 +550,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     if(cam.detector){
       const loop = async () => {
         if(!cam.on) return;
-        try{ if(v.readyState >= 2){ const r = await cam.detector.detect(v); if(r && r.length) onCamCode(r[0].rawValue); } }catch(e){}
+        try{ if(v.readyState >= 2){ const r = await cam.detector.detect(v); if(r && r.length) onCamCode(r[0].rawValue); else onCamMiss(); } }catch(e){}
         if(cam.on) cam.timer = setTimeout(loop, 120);
       };
       loop();
@@ -523,7 +559,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
       try{
         const hints = new Map(); hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
         cam.zx = new ZXing.BrowserMultiFormatReader(hints, 150);
-        cam.zx.decodeFromStream(cam.stream, v, (result) => { if(result && cam.on) onCamCode(result.getText()); }).catch(() => {});
+        cam.zx.decodeFromStream(cam.stream, v, (result) => { if(!cam.on) return; if(result) onCamCode(result.getText()); else onCamMiss(); }).catch(() => {});
       }catch(e){ flash("Lecture caméra impossible sur cet appareil.", "bad"); stopCam(); return; }
     }
     flash("Caméra active : vise un code-barres.", "");
@@ -531,6 +567,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   }
   function stopCam(){
     cam.on = false; clearTimeout(cam.timer);
+    cam.pending = ""; cam.block = ""; cam.cand = ""; cam.candN = 0; showPending();
     try{ if(cam.zx) cam.zx.reset(); }catch(e){}
     cam.zx = null;
     if(cam.stream){ cam.stream.getTracks().forEach(t => t.stop()); cam.stream = null; }
@@ -538,7 +575,9 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     $("cam").classList.remove("on"); $("list").style.display = ""; $("camBtn").textContent = "Caméra";
     focusScan();
   }
-  ["camBtn","camClose","torchBtn"].forEach(id => $(id).addEventListener("pointerdown", e => e.preventDefault()));
+  $("camOk").addEventListener("click", camValidate);
+  $("camSkip").addEventListener("click", camSkip);
+  ["camBtn","camClose","torchBtn","camOk","camSkip"].forEach(id => $(id).addEventListener("pointerdown", e => e.preventDefault()));
   $("camBtn").addEventListener("click", () => { cam.on ? stopCam() : startCam(); });
   $("camClose").addEventListener("click", stopCam);
   $("torchBtn").addEventListener("click", async () => {

@@ -425,25 +425,32 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   /* Scanner input */
   const scan = $("scan");
   function focusScan(){ if(!sheetOpen){ try{ scan.focus({preventScroll:true}); }catch(e){ scan.focus(); } } updateStatus(); }
+  function isTypingField(){ const a = document.activeElement; return a && a !== scan && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable); }
   function updateStatus(){
     const typing = document.activeElement === $("manualCode");
-    const on = document.activeElement === scan && document.hasFocus();
+    const on = document.hasFocus() && !sheetOpen && !typing;
     $("status").classList.toggle("typing", typing);
     $("status").classList.toggle("off", !on && !typing);
-    $("statusTxt").textContent = typing ? "Saisie manuelle : tape le code puis « Ajouter »" : on ? "Prêt à scanner" : "Scan en pause : touche l’écran pour reprendre";
+    $("statusTxt").textContent = typing ? "Saisie manuelle : tape le code puis « Ajouter »" : on ? "Prêt à scanner" : "Touche l’écran pour reprendre";
   }
-  scan.addEventListener("keydown", e => {
+  /* Global keyboard wedge: the hardware scanner (and Bluetooth finger scanners)
+     type the code then Enter, wherever focus is. We capture it on the whole page
+     so it works even if no field is focused — except while typing in a real field. */
+  let wedgeBuf = "", wedgeT = 0;
+  document.addEventListener("keydown", e => {
+    if(isTypingField()) return;
+    const now = Date.now();
+    if(now - wedgeT > 120) wedgeBuf = "";
+    wedgeT = now;
     if(e.key === "Enter" || e.key === "Tab"){
-      e.preventDefault();
-      const v = scan.value.trim(); scan.value = "";
-      if(v) receiveScan(v, "scan");
+      const v = wedgeBuf.trim(); wedgeBuf = ""; try{ scan.value = ""; }catch(_){}
+      if(v){ e.preventDefault(); receiveScan(v, "scan"); }
+      return;
     }
-  });
-  scan.addEventListener("blur", () => setTimeout(updateStatus, 50));
-  scan.addEventListener("focus", updateStatus);
-  window.addEventListener("focus", () => setTimeout(focusScan, 50));
+    if(e.key && e.key.length === 1) wedgeBuf += e.key;
+  }, true);
+  window.addEventListener("focus", () => setTimeout(updateStatus, 50));
   window.addEventListener("blur", updateStatus);
-  document.addEventListener("click", e => { if(!sheetOpen && !e.target.closest(".row, .manual, #manualBtn")) focusScan(); });
 
   function codeError(code, src){
     if(cam.on){ cam.block = code; cam.misses = 0; }
@@ -791,7 +798,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 20 du 14/11/2026</p>');
+      '<p style="font-size:13px">Version 21 du 14/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

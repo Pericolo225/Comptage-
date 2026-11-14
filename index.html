@@ -203,7 +203,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     </div>
   </div>
 
-  <div class="status" id="status"><span class="dot"></span><span id="statusTxt">Prêt à scanner</span><span class="pph" id="pph" title="Pièces par heure sur la mission"></span></div>
+  <div class="status" id="status"><span class="dot"></span><span id="statusTxt">Prêt à scanner</span><button class="pph" id="pph" title="Pièces par heure, pauses et temps morts compris"></button></div>
   <button class="team" id="team" hidden style="text-align:left"></button>
   <div class="flash" id="flash">Scanne l’étiquette de zone pour commencer.</div>
 
@@ -302,6 +302,29 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     return Math.round(sum(lines) / (active/3600000));
   }
   const fmtPph = v => v === null ? "—" : v.toLocaleString("fr-FR");
+  /* Real PPH: pieces / elapsed time, latency and short pauses included.
+     The clock stops after 10 min without any activity (scan, zone opened or closed):
+     each idle gap counts for at most 10 min. */
+  const IDLE_CAP = 10*60*1000;
+  function segOpen(z){ if(!z) return; state.zoneTimes = state.zoneTimes || {}; const a = state.zoneTimes[z] = state.zoneTimes[z] || []; const l = a[a.length-1]; if(!l || l.c) a.push({o: Date.now()}); }
+  function segClose(z){ if(!z || !state.zoneTimes || !state.zoneTimes[z]) return; const a = state.zoneTimes[z], l = a[a.length-1]; if(l && !l.c) l.c = Date.now(); }
+  function cappedSpan(ts){ ts = ts.filter(x => !isNaN(x)).sort((a,b) => a-b); let s = 0; for(let i=1;i<ts.length;i++) s += Math.min(ts[i]-ts[i-1], IDLE_CAP); return s; }
+  function zoneSpan(s, z){
+    const segs = (s.zoneTimes || {})[z], lt = s.lines.filter(l => l.zone === z).map(l => Date.parse(l.t));
+    if(segs && segs.length) return segs.reduce((a, g) => { const e = g.c || Date.now(); return a + cappedSpan([g.o, e, ...lt.filter(x => x >= g.o && x <= e)]); }, 0);
+    return cappedSpan(lt);
+  }
+  function missionSpan(s){
+    const ts = (s.lines || []).map(l => Date.parse(l.t));
+    Object.values(s.zoneTimes || {}).forEach(a => a.forEach(g => { ts.push(g.o); if(g.c) ts.push(g.c); }));
+    if(s.zone && (s.zoneTimes || {})[s.zone] && !s.zoneTimes[s.zone].slice(-1)[0].c) ts.push(Date.now());
+    return cappedSpan(ts);
+  }
+  function activeMs(lines){ const ts = lines.map(l => Date.parse(l.t)).sort((a,b)=>a-b); let a = 0; for(let i=1;i<ts.length;i++){ const g = ts[i]-ts[i-1]; if(g <= PAUSE_MS) a += g; } return a; }
+  const pphReal = (q, ms) => (!q || ms < 60000) ? null : Math.round(q / (ms/3600000));
+  const pphMission = s => pphReal(sum(s.lines), missionSpan(s));
+  const pphZone = (s, z) => pphReal(sum(s.lines.filter(l => l.zone === z)), zoneSpan(s, z));
+  function fmtDur(ms){ ms = Math.max(0, ms); const m = Math.round(ms/60000), h = Math.floor(m/60); return h ? h + " h " + String(m%60).padStart(2,"0") : m + " min"; }
   function esc(s){ return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
   function zoneRegex(){ const p = (state.prefix||"Z").replace(/[.*+?^${}()|[\]\\]/g,"\\$&"); return new RegExp("^"+p+"\\d{1,6}$","i"); }
 
@@ -374,7 +397,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
         '<button class="row'+(i===0?' latest':'')+'" data-id="'+l.id+'"><span class="code"><span class="num">'+esc(l.code)+'</span>'+(master ? '<small class="nm'+(itemOf(l.code) ? '' : ' unk')+'">'+esc(nameOf(l.code) || "Inconnu du fichier client")+'</small>' : '')+'</span>'+(l.src==="manuel"?'<span class="src">saisi</span>':'')+'<span class="q num">'+l.qty+'</span></button>'
       ).join("");
     }
-    $("pph").textContent = "PPH " + fmtPph(pphOf(state.lines));
+    $("pph").textContent = "PPH " + fmtPph(pphMission(state));
     try{ renderTeam(); }catch(e){}
     $("who").textContent = state.counter ? "Compteur : " + state.counter : "Compteur : à renseigner dans Menu";
     renderQty();
@@ -468,7 +491,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     if(cam.pending){ beep(false); flash("Valide ou ignore d’abord le code " + cam.pending + ".", "bad"); return; }
     if(!state.zone){ flash("Aucune zone ouverte.", ""); return; }
     const z = state.zone, zl = linesOf(z);
-    markClosed(z);
+    segClose(z); markClosed(z);
     state.zone = null; qtyBuf = ""; save(); render(); beep(true, "zone");
     flash("Zone " + z + " fermée : " + fmtLines(zl.length) + ", " + fmtQty(sum(zl)) + ". Scanne la zone suivante.", "zone");
     if(state.autoBackup !== false && state.lines.length){
@@ -509,11 +532,12 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
       $("roOk").onclick = () => { closeSheet(); logAct("Réouverture d’une zone fermée", z, "", sum(zl), ""); openZone(z, true); };
       return;
     }
+    if(state.zone && state.zone !== z) segClose(state.zone);
     if(state.zone && linesOf(state.zone).length) markClosed(state.zone);
     if(force) state.closed = (state.closed || []).filter(x => x !== z);
     if(!state.zones.includes(z)) state.zones.push(z);
     const already = linesOf(z).length;
-    state.zone = z; qtyBuf = ""; save(); render(); beep(true, "zone");
+    state.zone = z; segOpen(z); qtyBuf = ""; save(); render(); beep(true, "zone");
     flash(already ? "Zone " + z + " rouverte : " + fmtLines(already) + " déjà comptées." : "Zone " + z + " ouverte.", "zone");
   }
 
@@ -529,6 +553,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   });
   $("closeZoneBtn").addEventListener("click", closeZone);
   $("team").addEventListener("click", () => teamSheet());
+  $("pph").addEventListener("click", () => prodSheet());
   $("undoBtn").addEventListener("click", () => {
     if(!state.zone){ return; }
     const zl = linesOf(state.zone); const last = zl[zl.length-1];
@@ -609,7 +634,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   function zonesSheet(){
     const items = state.zones.map(z => {
       const zl = linesOf(z);
-      return '<div class="zitem'+(z===state.zone?' cur':'')+'"><span class="zn num">'+esc(z)+'</span><span class="zs">'+fmtLines(zl.length)+'<br>'+fmtQty(sum(zl))+'<br>PPH '+fmtPph(pphOf(zl))+'</span>'+
+      return '<div class="zitem'+(z===state.zone?' cur':'')+'"><span class="zn num">'+esc(z)+'</span><span class="zs">'+fmtLines(zl.length)+'<br>'+fmtQty(sum(zl))+'<br>'+fmtDur(zoneSpan(state, z))+' · PPH '+fmtPph(pphZone(state, z))+'</span>'+
         '<div class="zbtns"><button class="btn" data-view="'+esc(z)+'">Voir les articles</button><button class="btn" data-open="'+esc(z)+'">Ouvrir</button><button class="btn danger" data-reset="'+esc(z)+'">Recompter</button></div></div>';
     }).join("");
     openSheet('<h2>Zones</h2><div class="totals"><span><b class="num">'+state.zones.length+'</b> zones</span><span><b class="num">'+sum(state.lines)+'</b> articles</span></div>'+
@@ -628,8 +653,9 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
       const z = b.dataset.reset, n = linesOf(z).length;
       confirmSheet("Recompter " + z + " ?", "Les " + fmtLines(n) + " de cette zone seront effacées, puis la zone sera rouverte vide.", "Effacer et recompter", () => {
         const gone = linesOf(z); logAct("Recomptage : zone vidée (" + fmtLines(gone.length) + ")", z, "", sum(gone), 0);
-        if(state.zone && state.zone !== z && linesOf(state.zone).length) markClosed(state.zone);
+        if(state.zone && state.zone !== z){ segClose(state.zone); if(linesOf(state.zone).length) markClosed(state.zone); }
         state.closed = (state.closed || []).filter(x => x !== z);
+        state.zoneTimes = state.zoneTimes || {}; state.zoneTimes[z] = [{o: Date.now()}];
         state.lines = state.lines.filter(l => l.zone !== z); state.zone = z; save(); render(); flash("Zone " + z + " vidée : recomptage.", "zone");
       });
     });
@@ -690,6 +716,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     XLSX.utils.book_append_sheet(wb, c, "Consolidé");
     XLSX.utils.book_append_sheet(wb, d, "Détail par zone");
     XLSX.utils.book_append_sheet(wb, j, "Journal");
+    const pw = XLSX.utils.aoa_to_sheet(prodAoa(s)); pw["!cols"] = [{wch:10},{wch:9},{wch:8},{wch:16},{wch:16},{wch:17},{wch:9},{wch:9}]; XLSX.utils.book_append_sheet(wb, pw, "Productivité");
     (s.extraSheets || []).forEach(x => { const ws = XLSX.utils.aoa_to_sheet(x.aoa); ws["!cols"] = [{wch:22},{wch:14},{wch:12},{wch:40}]; XLSX.utils.book_append_sheet(wb, ws, x.name); });
     const buf = XLSX.write(wb, {bookType:"xlsx", type:"array"});
     const sig = sigOf(s);
@@ -706,7 +733,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
 
   $("menuBtn").addEventListener("click", () => {
     openSheet('<h2>Mission</h2>'+
-      '<div class="totals"><span><b class="num">'+state.zones.length+'</b> zones</span><span><b class="num">'+fmtLines(state.lines.length)+'</b></span><span><b class="num">'+sum(state.lines)+'</b> articles</span><span><b class="num">'+fmtPph(pphOf(state.lines))+'</b> PPH</span></div>'+
+      '<div class="totals"><span><b class="num">'+state.zones.length+'</b> zones</span><span><b class="num">'+fmtLines(state.lines.length)+'</b></span><span><b class="num">'+sum(state.lines)+'</b> articles</span><span><b class="num">'+fmtPph(pphMission(state))+'</b> PPH</span></div>'+
       '<label>Nom du compteur<input id="mw" value="'+esc(state.counter)+'" autocomplete="off" placeholder="Prénom et nom"></label>'+
       '<label>Nom du client ou de la mission<input id="mn" value="'+esc(state.mission)+'" autocomplete="off"></label>'+
       '<div class="expst '+(isExported() ? 'ok">Mission exportée : rien à perdre' : 'no">Mission pas encore exportée depuis la dernière modification')+'</div>'+
@@ -723,7 +750,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
       '<div class="btnrow"><button class="btn" id="xMerge">Fusionner l’export d’un autre téléphone</button></div>'+
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 13 du 14/11/2026</p>');
+      '<p style="font-size:13px">Version 15 du 14/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -736,6 +763,30 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     $("xC").onclick = () => { keep(); exportCsv(); };
     $("xNew").onclick = () => { keep(); newMissionSheet(); };
   });
+
+  /* Productivity */
+  function prodSheet(){
+    const tot = missionSpan(state), act = activeMs(state.lines), q = sum(state.lines);
+    const zs = state.zones.filter(z => linesOf(z).length || ((state.zoneTimes||{})[z]||[]).length);
+    openSheet('<h2>Productivité</h2>'+
+      '<div class="totals"><span>PPH réel <b class="num">'+fmtPph(pphReal(q, tot))+'</b></span><span>PPH actif <b class="num">'+fmtPph(pphReal(q, act))+'</b></span></div>'+
+      '<div class="totals"><span>Temps total <b class="num">'+fmtDur(tot)+'</b></span><span>Actif <b class="num">'+fmtDur(act)+'</b></span><span>Inactif <b class="num">'+fmtDur(Math.round(tot/60000)*60000 - Math.round(act/60000)*60000)+'</b></span></div>'+
+      '<p style="font-size:14px"><b>PPH réel</b> : articles ÷ temps écoulé depuis l’ouverture de la 1re zone, déplacements et temps morts compris, mais le chronomètre s’arrête après 10 min sans activité (c’est celui affiché en haut et à utiliser pour tes devis). <b>PPH actif</b> : seulement pendant le scan, sans les arrêts de plus de 5 min.</p>'+
+      (zs.length ? '<div class="zlist">'+zs.map(z => { const zl = linesOf(z), sp = zoneSpan(state, z), a = activeMs(zl);
+        return '<div class="zitem'+(z===state.zone?' cur':'')+'"><span class="zn num">'+esc(z)+'</span><span class="zs">'+fmtQty(sum(zl))+' · '+fmtDur(sp)+'<br>PPH réel '+fmtPph(pphReal(sum(zl), sp))+' · actif '+fmtPph(pphReal(sum(zl), a))+'</span></div>'; }).join("")+'</div>' : '')+
+      '<p style="font-size:13px">Après 10 min sans scan ni ouverture/fermeture de zone, le temps ne compte plus ; il reprend à l’action suivante.</p>'+
+      '<div class="btnrow"><button class="btn" id="pNo">Fermer</button></div>');
+    $("pNo").onclick = closeSheet;
+  }
+  function prodAoa(s){
+    const own = s === state, zs = [...new Set(s.lines.map(l => l.zone))].sort();
+    const rows = zs.map(z => { const zl = s.lines.filter(l => l.zone === z), sp = zoneSpan(own ? s : {lines:s.lines}, z), a = activeMs(zl);
+      return [z, sum(zl), zl.length, Math.round(sp/60000), Math.round(a/60000), Math.round(sp/60000) - Math.round(a/60000), pphReal(sum(zl), sp) ?? "", pphReal(sum(zl), a) ?? ""]; });
+    const tot = own ? missionSpan(s) : (s.lines.length ? Math.max(...s.lines.map(l => Date.parse(l.t))) - Math.min(...s.lines.map(l => Date.parse(l.t))) : 0), act = activeMs(s.lines);
+    return [["Zone","Articles","Lignes","Temps total (min)","Temps actif (min)","Temps inactif (min)","PPH réel","PPH actif"], ...rows, [],
+      ["MISSION", sum(s.lines), s.lines.length, Math.round(tot/60000), Math.round(act/60000), Math.round(tot/60000) - Math.round(act/60000), pphReal(sum(s.lines), tot) ?? "", pphReal(sum(s.lines), act) ?? ""], [],
+      ["PPH réel = articles ÷ temps écoulé, temps morts compris mais chaque arrêt plafonné à 10 min. PPH actif = hors arrêts de plus de 5 min."]];
+  }
 
   /* Missions: archive instead of delete */
   function settingsOf(s){ return {prefix:s.prefix, counter:s.counter, confirm:s.confirm, check:s.check, autoBackup:s.autoBackup, bigQty:s.bigQty}; }

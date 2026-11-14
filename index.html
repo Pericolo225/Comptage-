@@ -130,6 +130,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
 .veil.open{display:flex}
 .sheet{background:var(--surface);width:100%;max-width:560px;max-height:88%;overflow-y:auto;border-radius:16px 16px 0 0;
   padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:12px;user-select:text}
+.sheet > *{flex-shrink:0}
 .sheet h2{margin:0;font-size:22px}
 .sheet p{margin:0;color:var(--muted);line-height:1.4}
 .sheet label{display:flex;flex-direction:column;gap:4px;font-weight:600;font-size:15px}
@@ -704,7 +705,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
       '<div class="btnrow"><button class="btn" id="xMerge">Fusionner l’export d’un autre téléphone</button></div>'+
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 9 du 14/11/2026</p>');
+      '<p style="font-size:13px">Version 10 du 14/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -1094,11 +1095,13 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     if(!state.team){
       openSheet('<h2>Équipe en ligne</h2>'+
         '<p>Relie plusieurs téléphones à la même mission. Chacun ne voit que ses propres scans ; tout est envoyé en ligne (même plus tard si le réseau coupe) et tu peux exporter le travail de toute l’équipe dans un seul Excel.</p>'+
+        '<label>Ton nom (visible par l’équipe)<input id="tWho" value="'+esc(state.counter)+'" autocomplete="off" placeholder="Prénom et nom"></label>'+
         '<div class="btnrow"><button class="btn primary" id="tCreate">Créer une mission d’équipe</button></div>'+
         '<label>Ou rejoindre avec le code de ton collègue<input id="tCode" class="num" maxlength="6" autocomplete="off" autocapitalize="characters" placeholder="Ex. K7P4QX" style="text-transform:uppercase;letter-spacing:3px"></label>'+
         '<div class="btnrow"><button class="btn" id="tBack">Retour</button><button class="btn primary" id="tJoin">Rejoindre</button></div>');
-      $("tCreate").onclick = createTeam;
-      $("tJoin").onclick = () => joinTeam($("tCode").value);
+      const needWho = () => { const w = $("tWho").value.trim(); if(!w){ beep(false); flash("Indique ton nom : l’équipe verra qui a compté quoi.", "bad"); $("tWho").focus(); return false; } state.counter = w; save(); render(); return true; };
+      $("tCreate").onclick = () => { if(needWho()) createTeam(); };
+      $("tJoin").onclick = () => { if(needWho()) joinTeam($("tCode").value); };
       $("tBack").onclick = () => $("menuBtn").click();
       return;
     }

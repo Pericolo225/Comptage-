@@ -74,7 +74,7 @@ body.control .tag{box-shadow:0 0 0 3px var(--act)}
 .flash.zone{border-color:var(--tag);background:color-mix(in srgb,var(--tag) 22%,var(--surface))}
 
 .list{flex:1 1 0;min-height:0;overflow-y:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px}
-.list:empty{flex:0 0 0;min-height:0;border:0}
+.list:empty{border:0;background:transparent}
 .row{display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;border:0;border-bottom:1px solid var(--line);background:none;text-align:left}
 .row:last-child{border-bottom:0}
 .row .code{flex:1;font-size:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
@@ -857,7 +857,7 @@ body.control .tag{box-shadow:0 0 0 3px var(--act)}
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 23 du 15/11/2026</p>');
+      '<p style="font-size:13px">Version 24 du 15/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

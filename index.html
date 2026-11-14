@@ -72,7 +72,9 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
 .list{flex:1;min-height:80px;overflow-y:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px}
 .row{display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;border:0;border-bottom:1px solid var(--line);background:none;text-align:left}
 .row:last-child{border-bottom:0}
-.row .code{flex:1;font-size:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .code{flex:1;font-size:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.row .nm{display:block;font-size:13px;color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+.row .nm.unk,.pq .unk{color:var(--bad);font-weight:600}
 .row .q{font-size:24px;font-weight:700;min-width:48px;text-align:right}
 .row.latest{box-shadow:inset 5px 0 0 var(--tag);background:color-mix(in srgb,var(--tag) 10%,var(--surface))}
 .emptymsg{padding:18px 14px;color:var(--muted);line-height:1.4}
@@ -366,7 +368,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     } else {
       const rows = zl.slice(-60).reverse();
       list.innerHTML = rows.map((l,i) =>
-        '<button class="row'+(i===0?' latest':'')+'" data-id="'+l.id+'"><span class="code num">'+esc(l.code)+'</span>'+(l.src==="manuel"?'<span class="src">saisi</span>':'')+'<span class="q num">'+l.qty+'</span></button>'
+        '<button class="row'+(i===0?' latest':'')+'" data-id="'+l.id+'"><span class="code"><span class="num">'+esc(l.code)+'</span>'+(master ? '<small class="nm'+(itemOf(l.code) ? '' : ' unk')+'">'+esc(nameOf(l.code) || "Inconnu du fichier client")+'</small>' : '')+'</span>'+(l.src==="manuel"?'<span class="src">saisi</span>':'')+'<span class="q num">'+l.qty+'</span></button>'
       ).join("");
     }
     $("pph").textContent = "PPH " + fmtPph(pphOf(state.lines));
@@ -377,7 +379,11 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   function showPending(){
     $("cam").classList.toggle("has-pending", !!cam.pending);
     $("pend").classList.toggle("on", !!cam.pending);
-    if(cam.pending){ $("pCode").textContent = cam.pending; $("pQty").innerHTML = "Quantité : <b>" + (qtyBuf || "1") + "</b>"; }
+    if(cam.pending){
+      $("pCode").textContent = cam.pending;
+      const nm = master ? (itemOf(cam.pending) ? '<span>' + esc(nameOf(cam.pending).slice(0, 30)) + '</span><br>' : '<span class="unk">Inconnu du fichier client</span><br>') : "";
+      $("pQty").innerHTML = nm + "Quantité : <b>" + (qtyBuf || "1") + "</b>";
+    }
   }
   function renderQty(){
     try{ showPending(); }catch(e){}
@@ -443,7 +449,8 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     }
     state.lines.push({id: state.seq++, zone: state.zone, code, qty, t: new Date().toISOString(), src: src || "scan", who: state.counter || ""});
     qtyBuf = ""; if(!save()){ state.lines.pop(); state.seq--; render(); return; } render(); beep(true);
-    flash("+" + qty + "   " + code + (src === "manuel" ? "   (saisi)" : ""), "ok");
+    if(master && !itemOf(code)){ flash("+" + qty + "   " + code + " : INCONNU du fichier client", "bad"); }
+    else flash("+" + qty + "   " + (master ? nameOf(code).slice(0, 28) + " · " : "") + code + (src === "manuel" ? "   (saisi)" : ""), "ok");
   }
   function zoneError(code){
     if(cam.on){ cam.block = code; cam.misses = 0; }
@@ -662,14 +669,21 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     if(!window.XLSX){ if(!opt.silent) flash("Module Excel non chargé : utilise l’export CSV.", "bad"); return false; }
     const wb = XLSX.utils.book_new();
     const d = XLSX.utils.aoa_to_sheet([["Zone","Code","Quantité","Mode","Compteur","Date et heure"], ...detailRows(s)]);
-    const c = XLSX.utils.aoa_to_sheet([["Code","Quantité comptée","Zones"], ...consolidated(s)]);
+    const M = (s === state || s.useMaster) && master;
+    const c = M ? XLSX.utils.aoa_to_sheet([["Code","Désignation","Quantité comptée","Zones"], ...consolidated(s).map(r => [r[0], nameOf(r[0]) || "INCONNU du fichier client", r[1], r[2]])])
+                : XLSX.utils.aoa_to_sheet([["Code","Quantité comptée","Zones"], ...consolidated(s)]);
     const j = XLSX.utils.aoa_to_sheet([["Date et heure","Action","Zone","Code","Ancienne quantité","Nouvelle quantité","Compteur"],
       ...(s.log||[]).map(x => [new Date(x.t).toLocaleString("fr-FR"), x.action, x.zone, x.code, x.oldQ, x.newQ, x.who])]);
     j["!cols"] = [{wch:20},{wch:34},{wch:8},{wch:18},{wch:12},{wch:12},{wch:18}];
     fixCodeColJ(j);
     const fixCodeCol = (ws, col) => Object.keys(ws).forEach(k => { if(k[0] !== "!" && new RegExp("^"+col+"\\d+$").test(k)){ ws[k].t = "s"; ws[k].v = String(ws[k].v); ws[k].z = "@"; } });
     fixCodeCol(d,"B"); fixCodeCol(c,"A");
-    d["!cols"] = [{wch:8},{wch:18},{wch:10},{wch:16},{wch:18},{wch:20}]; c["!cols"] = [{wch:18},{wch:16},{wch:30}];
+    d["!cols"] = [{wch:8},{wch:18},{wch:10},{wch:16},{wch:18},{wch:20}]; c["!cols"] = M ? [{wch:18},{wch:30},{wch:16},{wch:30}] : [{wch:18},{wch:16},{wch:30}];
+    if(M){
+      const {ec, syn} = ecartsAoa(s.lines);
+      const ws1 = XLSX.utils.aoa_to_sheet(syn); ws1["!cols"] = [{wch:52},{wch:22}]; XLSX.utils.book_append_sheet(wb, ws1, "Synthèse");
+      const ws2 = XLSX.utils.aoa_to_sheet(ec); fixCodeCol(ws2, "A"); ws2["!cols"] = [{wch:16},{wch:12},{wch:30},{wch:10},{wch:10},{wch:8},{wch:12},{wch:13},{wch:13},{wch:12},{wch:20}]; XLSX.utils.book_append_sheet(wb, ws2, "Écarts");
+    }
     XLSX.utils.book_append_sheet(wb, c, "Consolidé");
     XLSX.utils.book_append_sheet(wb, d, "Détail par zone");
     XLSX.utils.book_append_sheet(wb, j, "Journal");
@@ -701,11 +715,12 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
       '<div class="btnrow"><button class="btn" id="xB">Tester le bip</button></div>'+
       '<div class="btnrow"><button class="btn primary" id="xX">Exporter Excel</button><button class="btn" id="xC">Exporter CSV</button></div>'+
       '<p>Excel contient trois onglets : total par code, détail par zone et journal des corrections ('+(state.log||[]).length+'). Les codes restent en texte.</p>'+
+      '<div class="btnrow"><button class="btn primary" id="xMaster">'+(master ? 'Stock théorique ('+master.items.length+' réf.)' : 'Charger le stock théorique')+'</button>'+(master ? '<button class="btn primary" id="xEc">Écarts</button>' : '')+'</div>'+
       '<div class="btnrow"><button class="btn primary" id="xTeam">Équipe en ligne'+(state.team ? ' ('+esc(state.team.code)+')' : '')+'</button></div>'+
       '<div class="btnrow"><button class="btn" id="xMerge">Fusionner l’export d’un autre téléphone</button></div>'+
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 10 du 14/11/2026</p>');
+      '<p style="font-size:13px">Version 11 du 14/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -713,6 +728,8 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     $("xArch").onclick = () => { keep(); archSheet(); };
     $("xMerge").onclick = () => { keep(); pickMergeFile(); };
     $("xTeam").onclick = () => { keep(); teamSheet(); };
+    $("xMaster").onclick = () => { keep(); masterSheet(); };
+    if(master) $("xEc").onclick = () => { keep(); ecartsSheet("ec"); };
     $("xC").onclick = () => { keep(); exportCsv(); };
     $("xNew").onclick = () => { keep(); newMissionSheet(); };
   });
@@ -733,7 +750,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   function startNew(){
     if(cam.pending){ beep(false); flash("Valide ou ignore d’abord le code " + cam.pending + ".", "bad"); return; }
     if(!archiveCurrent()){ beep(false); flash("Archivage impossible (mémoire pleine) : exporte, puis supprime des archives.", "bad"); return; }
-    const keepS = settingsOf(state); stopTeam(); state = Object.assign(blank(), keepS); qtyBuf = ""; save(); render(); closeSheet();
+    const keepS = settingsOf(state); stopTeam(); state = Object.assign(blank(), keepS); loadMaster(); qtyBuf = ""; save(); render(); closeSheet();
     flash("Mission précédente archivée. Nouvelle mission prête : scanne la première zone.", "");
   }
   function newMissionSheet(){
@@ -769,7 +786,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
       confirmSheet("Restaurer « " + (x.mission || "Mission sans nom") + " » ?", "La mission en cours sera archivée, puis celle-ci redeviendra la mission active.", "Restaurer", () => {
         if(!archiveCurrent()){ flash("Archivage impossible (mémoire pleine).", "bad"); return; }
         const rest = loadArch().filter(y => y.id !== x.id); try{ saveArch(rest); }catch(e){}
-        stopTeam(); state = Object.assign(blank(), x.data); qtyBuf = ""; save(); render(); teamBoot();
+        stopTeam(); state = Object.assign(blank(), x.data); loadMaster(); qtyBuf = ""; save(); render(); teamBoot();
         flash("Mission « " + (x.mission || "sans nom") + " » restaurée.", "zone");
       });
     });
@@ -868,6 +885,213 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     if(!save()){ state = JSON.parse(backup); render(); return; }
     closeSheet(); render(); beep(true, "zone");
     flash("Fusion réussie : " + fmtLines(added) + " ajoutées. Total mission : " + fmtQty(sum(state.lines)) + ".", "ok");
+  }
+
+  /* ===== Stock théorique du client (fichier articles) ===== */
+  const MASTER_KEY = "comptage-master";
+  let master = null, masterIdx = new Map();
+  function normCode(c){ const s = String(c == null ? "" : c).trim().replace(/\s+/g, ""); if(/^\d+$/.test(s)) return s.replace(/^0+/, "") || "0"; return s.toUpperCase(); }
+  function parseNum(v){ if(typeof v === "number") return v; const s = String(v == null ? "" : v).replace(/\s| |€/g, "").replace(",", "."); const n = parseFloat(s); return isNaN(n) ? null : n; }
+  function rebuildIdx(){
+    masterIdx = new Map();
+    if(!master) return;
+    master.items.forEach((it, i) => {
+      it.eans.forEach(e => { const k = normCode(e); if(k && !masterIdx.has(k)) masterIdx.set(k, i); });
+      if(it.ref){ const k = normCode(it.ref); if(k && !masterIdx.has(k)) masterIdx.set(k, i); }
+    });
+  }
+  function loadMaster(){
+    master = null;
+    try{ const m = JSON.parse(localStorage.getItem(MASTER_KEY)); if(m && m.mission === state.startedAt && Array.isArray(m.items)) master = m; }catch(e){}
+    rebuildIdx();
+  }
+  function saveMaster(m){
+    try{ if(m) localStorage.setItem(MASTER_KEY, JSON.stringify(m)); else localStorage.removeItem(MASTER_KEY); master = m; rebuildIdx(); return true; }
+    catch(e){ beep(false); flash("Fichier trop gros pour la mémoire du téléphone : supprime des missions archivées, puis réessaie.", "bad"); return false; }
+  }
+  const itemOf = code => { if(!master) return null; const i = masterIdx.get(normCode(code)); return i === undefined ? null : master.items[i]; };
+  const nameOf = code => { const it = itemOf(code); return it ? it.name || it.ref || "" : ""; };
+
+  const COLS = [
+    {k:"ean", lbl:"Code-barres (EAN)", req:true, re:/(ean|gtin|code.?barre|barcode|upc|cb\b|code ?ean)/i},
+    {k:"name", lbl:"Désignation", re:/(d[ée]signation|libell[ée]|nom|produit|article|description)/i},
+    {k:"ref", lbl:"Référence", re:/(r[ée]f|sku|code ?article|code ?interne)/i},
+    {k:"qty", lbl:"Stock théorique", req:true, re:/(stock|qt[ée]|quantit[ée]|th[ée]orique|disponible|en stock)/i},
+    {k:"cost", lbl:"Prix d’achat HT", re:/(prix ?d.?achat|pa\b|p\.a|co[uû]t|pmp|achat)/i}
+  ];
+  function parseCsv(txt, FS){
+    const rows = []; let row = [], cell = "", q = false;
+    for(let i = 0; i < txt.length; i++){
+      const ch = txt[i];
+      if(q){ if(ch === '"'){ if(txt[i+1] === '"'){ cell += '"'; i++; } else q = false; } else cell += ch; }
+      else if(ch === '"') q = true;
+      else if(ch === FS){ row.push(cell); cell = ""; }
+      else if(ch === "\n" || ch === "\r"){ if(ch === "\r" && txt[i+1] === "\n") i++; row.push(cell); rows.push(row); row = []; cell = ""; }
+      else cell += ch;
+    }
+    if(cell !== "" || row.length){ row.push(cell); rows.push(row); }
+    return rows;
+  }
+  function pickMasterFile(){
+    const inp = document.createElement("input");
+    inp.type = "file"; inp.accept = ".xlsx,.xls,.csv,.txt";
+    inp.onchange = async () => {
+      const f = inp.files && inp.files[0]; if(!f) return;
+      try{
+        const buf = new Uint8Array(await f.arrayBuffer());
+        let wb;
+        if(/\.(csv|txt)$/i.test(f.name)){
+          let txt = new TextDecoder("utf-8").decode(buf);
+          if(txt.includes("�")) txt = new TextDecoder("windows-1252").decode(buf);
+          txt = txt.replace(/^﻿/, "");
+          const first = txt.split(/\r?\n/)[0] || "";
+          const FS = (first.split(";").length > first.split(",").length) ? ";" : (first.split("\t").length > first.split(",").length ? "\t" : ",");
+          wb = {csv: parseCsv(txt, FS)};
+        } else wb = XLSX.read(buf, {type:"array"});
+        const rows = (wb.csv || XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header:1, raw:true, defval:""})).filter(r => r.some(v => String(v).trim() !== ""));
+        if(rows.length < 2){ beep(false); flash("Fichier vide ou illisible.", "bad"); return; }
+        let hi = 0, best = -1;
+        rows.slice(0, 10).forEach((r, i) => { const sc = r.filter(v => COLS.some(c => c.re.test(String(v)))).length; if(sc > best){ best = sc; hi = i; } });
+        const header = rows[hi].map(v => String(v).trim());
+        const map = {};
+        COLS.forEach(c => { const i = header.findIndex((h, j) => c.re.test(h) && !Object.values(map).includes(j)); if(i >= 0) map[c.k] = i; });
+        mapSheet({file: f.name, header, data: rows.slice(hi + 1), map});
+      }catch(e){ beep(false); flash("Fichier illisible : exporte-le en Excel (.xlsx) ou CSV depuis la caisse du client.", "bad"); }
+    };
+    inp.click();
+  }
+  function buildItems(imp){
+    const m = imp.map, items = [], seen = new Map(); let dup = 0, skipped = 0;
+    imp.data.forEach(r => {
+      const raw = String(r[m.ean] == null ? "" : r[m.ean]).trim();
+      const eans = raw.split(/[,;|\/]+|\s{2,}/).map(x => x.trim().replace(/\s+/g, "")).filter(Boolean)
+        .map(x => /^\d+(\.\d+)?e\+?\d+$/i.test(x) ? BigInt(Math.round(parseFloat(x))).toString() : x);
+      const ref = m.ref !== undefined ? String(r[m.ref] == null ? "" : r[m.ref]).trim() : "";
+      if(!eans.length && !ref){ skipped++; return; }
+      const key = normCode(eans[0] || ref);
+      const qty = m.qty !== undefined ? (parseNum(r[m.qty]) || 0) : 0;
+      if(seen.has(key)){ dup++; items[seen.get(key)].qty += qty; return; }
+      seen.set(key, items.length);
+      items.push({eans, ref, name: m.name !== undefined ? String(r[m.name] == null ? "" : r[m.name]).trim() : "", qty, cost: m.cost !== undefined ? parseNum(r[m.cost]) : null});
+    });
+    return {items, dup, skipped};
+  }
+  function mapSheet(imp){
+    const opts = sel => '<option value="">— aucune —</option>' + imp.header.map((h, i) => '<option value="'+i+'"'+(String(sel) === String(i) ? ' selected' : '')+'>'+esc(h || ("Colonne " + (i+1)))+'</option>').join("");
+    const b = buildItems(imp);
+    const ok = imp.map.ean !== undefined && imp.map.qty !== undefined && b.items.length;
+    const sample = b.items.slice(0, 3).map(it => '<div class="dline"><span class="dc num">'+esc(it.eans[0] || it.ref)+'</span><span class="dm">'+esc((it.name || "").slice(0, 22))+'</span><span class="dq num">'+it.qty+'</span></div>').join("");
+    openSheet('<h2>Stock théorique du client</h2><p><b>'+esc(imp.file)+'</b> · '+imp.data.length+' lignes</p>'+
+      '<p style="font-size:14px">Vérifie quelle colonne correspond à chaque information :</p>'+
+      COLS.map(c => '<label>'+c.lbl+(c.req ? ' *' : '')+'<select data-col="'+c.k+'" style="font:inherit;font-size:16px;padding:8px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)">'+opts(imp.map[c.k])+'</select></label>').join("")+
+      (b.items.length ? '<p style="font-size:14px">Aperçu ('+b.items.length+' références'+(b.dup ? ', '+b.dup+' doublons additionnés' : '')+') :</p><div class="dlist">'+sample+'</div>' : '<div class="expst no">Aucune référence lue avec ces colonnes.</div>')+
+      '<div class="btnrow"><button class="btn" id="mpNo">Annuler</button><button class="btn primary" id="mpOk"'+(ok ? '' : ' disabled style="opacity:.5"')+'>Importer</button></div>');
+    $("sheet").querySelectorAll("[data-col]").forEach(s => s.onchange = () => { if(s.value === "") delete imp.map[s.dataset.col]; else imp.map[s.dataset.col] = +s.value; mapSheet(imp); });
+    $("mpNo").onclick = closeSheet;
+    $("mpOk").onclick = () => {
+      if(!ok) return;
+      if(!state.startedAt){ state.startedAt = new Date().toISOString(); save(); }
+      const m = {mission: state.startedAt, file: imp.file, at: new Date().toISOString(), items: b.items};
+      if(!saveMaster(m)) return;
+      logAct("Import du stock théorique « " + imp.file + " » (" + b.items.length + " réf.)", "", "", "", "");
+      save(); render(); closeSheet(); beep(true, "zone");
+      flash("Stock théorique chargé : " + b.items.length + " références. Les noms s’affichent maintenant au scan.", "ok");
+    };
+  }
+  /* Compare counted lines with the client's file */
+  function computeEcarts(lines){
+    const cnt = new Map(), unk = new Map();
+    lines.forEach(l => {
+      const k = normCode(l.code), i = masterIdx.get(k);
+      const tgt = i === undefined ? unk : cnt, key = i === undefined ? k : i;
+      const e = tgt.get(key) || {qty:0, zones:new Set(), code:l.code}; e.qty += l.qty; e.zones.add(l.zone); tgt.set(key, e);
+    });
+    const rows = master.items.map((it, i) => {
+      const c = cnt.get(i) || {qty:0, zones:new Set()};
+      const ec = c.qty - it.qty, cost = it.cost;
+      return {code: it.eans[0] || it.ref, ref: it.ref, name: it.name, th: it.qty, ct: c.qty, ec, cost, vth: cost == null ? null : it.qty * cost, vct: cost == null ? null : c.qty * cost, vec: cost == null ? null : ec * cost, zones: [...c.zones].sort().join(" "), unknown:false};
+    });
+    unk.forEach(e => rows.push({code: e.code, ref:"", name:"INCONNU du fichier client", th:0, ct:e.qty, ec:e.qty, cost:null, vth:null, vct:null, vec:null, zones:[...e.zones].sort().join(" "), unknown:true}));
+    const tot = {th:0, ct:0, vth:0, vct:0, hasCost:false, refsEc:0, unknown:unk.size, missing:0, extra:0};
+    rows.forEach(r => { tot.th += r.th; tot.ct += r.ct; if(r.vth != null){ tot.hasCost = true; tot.vth += r.vth; tot.vct += r.vct; } if(r.ec){ tot.refsEc++; if(r.ec < 0) tot.missing++; else tot.extra++; } });
+    return {rows, tot};
+  }
+  const fmtEur = v => v == null ? "—" : v.toLocaleString("fr-FR", {style:"currency", currency:"EUR"});
+  const sgn = n => (n > 0 ? "+" : "") + (Math.round(n * 100) / 100).toLocaleString("fr-FR");
+  function ecartsSheet(filter){
+    if(!master){ masterSheet(); return; }
+    filter = filter || "ec";
+    const {rows, tot} = computeEcarts(state.lines);
+    let list = rows.filter(r => filter === "all" ? true : filter === "unk" ? r.unknown : filter === "miss" ? r.ec < 0 : filter === "plus" ? (r.ec > 0 && !r.unknown) : r.ec !== 0);
+    list.sort((a, b) => (Math.abs(b.vec || 0) - Math.abs(a.vec || 0)) || (Math.abs(b.ec) - Math.abs(a.ec)));
+    const shown = list.slice(0, 150);
+    const seg = (v, l) => '<button class="'+(filter === v ? 'on' : '')+'" data-f="'+v+'">'+l+'</button>';
+    openSheet('<h2>Écarts</h2>'+
+      '<div class="totals"><span>Théorique <b class="num">'+tot.th+'</b></span><span>Compté <b class="num">'+tot.ct+'</b></span><span>Écart <b class="num">'+sgn(tot.ct - tot.th)+'</b></span></div>'+
+      (tot.hasCost ? '<div class="totals"><span>Valeur théorique <b class="num">'+fmtEur(tot.vth)+'</b></span><span>Écart <b class="num" style="color:'+(tot.vct - tot.vth < 0 ? 'var(--bad)' : 'var(--ok)')+'">'+fmtEur(tot.vct - tot.vth)+'</b></span></div>' : '')+
+      '<div class="seg">'+seg("ec","Écarts ("+tot.refsEc+")")+seg("miss","Manquants")+seg("plus","En trop")+seg("unk","Inconnus ("+tot.unknown+")")+'</div>'+
+      (shown.length ? '<div class="dlist">'+shown.map((r, i) =>
+        '<button class="dline" data-r="'+i+'" style="flex-wrap:wrap"><span class="dc"><span class="num">'+esc(r.code)+'</span><br><small style="color:'+(r.unknown ? 'var(--bad)' : 'var(--muted)')+'">'+esc((r.name || "").slice(0, 32))+'</small></span>'+
+        '<span class="dm" style="text-align:right">th. '+r.th+'<br>cpt. '+r.ct+'</span><span class="dq num" style="color:'+(r.ec < 0 ? 'var(--bad)' : r.ec > 0 ? 'var(--ok)' : 'var(--ink)')+'">'+sgn(r.ec)+'</span></button>').join("")+'</div>'
+        : '<div class="expst ok">Aucune ligne dans ce filtre.</div>')+
+      (list.length > 150 ? '<p style="font-size:13px">150 premières lignes affichées (les plus gros écarts). Tout est dans l’export Excel.</p>' : '')+
+      '<p style="font-size:14px">Touche une ligne pour voir dans quelles zones l’article a été compté, et recompter.</p>'+
+      '<div class="btnrow"><button class="btn" id="ecBack">Retour</button><button class="btn" id="ecNo">Fermer</button></div>');
+    $("sheet").querySelectorAll("[data-f]").forEach(b => b.onclick = () => ecartsSheet(b.dataset.f));
+    $("sheet").querySelectorAll("[data-r]").forEach(b => b.onclick = () => ecartLine(shown[+b.dataset.r], filter));
+    $("ecBack").onclick = () => $("menuBtn").click();
+    $("ecNo").onclick = closeSheet;
+  }
+  function ecartLine(r, filter){
+    const k = normCode(r.code), it = itemOf(r.code);
+    const keys = new Set(it ? [...it.eans.map(normCode), it.ref ? normCode(it.ref) : null].filter(Boolean) : [k]);
+    const byZone = {};
+    state.lines.forEach(l => { if(keys.has(normCode(l.code))) byZone[l.zone] = (byZone[l.zone] || 0) + l.qty; });
+    const zs = Object.keys(byZone).sort();
+    openSheet('<h2 class="num">'+esc(r.code)+'</h2><p><b>'+esc(r.name || "")+'</b>'+(r.ref ? '<br>Réf. '+esc(r.ref) : '')+'</p>'+
+      '<div class="totals"><span>Théorique <b class="num">'+r.th+'</b></span><span>Compté <b class="num">'+r.ct+'</b></span><span>Écart <b class="num">'+sgn(r.ec)+'</b></span>'+(r.vec != null ? '<span><b class="num">'+fmtEur(r.vec)+'</b></span>' : '')+'</div>'+
+      (zs.length ? '<div class="zlist">'+zs.map(z => '<div class="zitem"><span class="zn num">'+esc(z)+'</span><span class="zs">'+byZone[z]+' compté(s)</span><button class="btn" data-zv="'+esc(z)+'">Voir la zone</button></div>').join("")+'</div>'
+        : '<div class="expst no">Jamais scanné : cherche cet article en magasin (réserve, vitrine, autre rayon).</div>')+
+      '<p style="font-size:14px">Pour recompter : ouvre la zone, corrige la ligne, ou utilise « Recompter » dans Zones pour refaire toute la zone.</p>'+
+      '<div class="btnrow"><button class="btn" id="elBack">Retour aux écarts</button></div>');
+    $("sheet").querySelectorAll("[data-zv]").forEach(b => b.onclick = () => zoneDetail(b.dataset.zv, "scan"));
+    $("elBack").onclick = () => ecartsSheet(filter);
+  }
+  function masterSheet(){
+    if(!master){
+      openSheet('<h2>Stock théorique du client</h2>'+
+        '<p>Charge l’export du fichier articles de la caisse du client (Excel ou CSV), avec au minimum le <b>code-barres</b> et le <b>stock théorique</b>. Idéalement aussi la désignation, la référence et le prix d’achat HT.</p>'+
+        '<p style="font-size:14px">Ensuite : le nom du produit s’affiche à chaque scan, les codes inconnus sont signalés, et l’écran « Écarts » compare le compté au théorique pour recompter avant de partir.</p>'+
+        '<div class="btnrow"><button class="btn primary" id="msPick">Choisir le fichier</button></div>'+
+        '<div class="btnrow"><button class="btn" id="msBack">Retour</button></div>');
+      $("msPick").onclick = pickMasterFile; $("msBack").onclick = () => $("menuBtn").click();
+      return;
+    }
+    const th = master.items.reduce((a, x) => a + x.qty, 0), withCost = master.items.filter(x => x.cost != null);
+    openSheet('<h2>Stock théorique du client</h2><p><b>'+esc(master.file)+'</b><br>Chargé le '+new Date(master.at).toLocaleString("fr-FR")+'</p>'+
+      '<div class="totals"><span><b class="num">'+master.items.length+'</b> réf.</span><span><b class="num">'+th+'</b> articles</span>'+(withCost.length ? '<span><b class="num">'+fmtEur(withCost.reduce((a, x) => a + x.qty * x.cost, 0))+'</b></span>' : '')+'</div>'+
+      '<div class="btnrow"><button class="btn primary" id="msEc">Voir les écarts</button></div>'+
+      '<div class="btnrow"><button class="btn" id="msPick">Remplacer le fichier</button><button class="btn danger" id="msDel">Retirer</button></div>'+
+      '<div class="btnrow"><button class="btn" id="msBack">Retour</button></div>');
+    $("msEc").onclick = () => ecartsSheet("ec");
+    $("msPick").onclick = pickMasterFile;
+    $("msDel").onclick = () => confirmSheet("Retirer le stock théorique ?", "Les comptages sont conservés ; seuls les noms, les écarts et la valorisation disparaissent.", "Retirer", () => { saveMaster(null); render(); flash("Stock théorique retiré.", ""); });
+    $("msBack").onclick = () => $("menuBtn").click();
+  }
+  const r2 = v => v == null ? "" : Math.round(v * 100) / 100;
+  function ecartsAoa(lines){
+    const {rows, tot} = computeEcarts(lines);
+    rows.sort((a, b) => (Math.abs(b.vec || 0) - Math.abs(a.vec || 0)) || (Math.abs(b.ec) - Math.abs(a.ec)));
+    const ec = [["Code-barres","Référence","Désignation","Théorique","Compté","Écart","Prix d’achat HT","Valeur théorique","Valeur comptée","Écart valeur","Zones"],
+      ...rows.map(r => [r.code, r.ref, r.name, r.th, r.ct, r.ec, r.cost == null ? "" : r.cost, r2(r.vth), r2(r.vct), r2(r.vec), r.zones])];
+    const top = rows.filter(r => r.vec != null && r.vec !== 0).slice(0, 10);
+    const syn = [["Synthèse de l’inventaire", ""], ["Mission", state.mission || ""], ["Fichier client", master.file], ["Date d’export", new Date().toLocaleString("fr-FR")], ["", ""],
+      ["Références au fichier", master.items.length], ["Articles théoriques", tot.th], ["Articles comptés", tot.ct], ["Écart en quantité", tot.ct - tot.th],
+      ["Références en écart", tot.refsEc], ["  dont manquantes", tot.missing], ["  dont en trop", tot.extra], ["Codes inconnus du fichier", tot.unknown]];
+    if(tot.hasCost) syn.push(["", ""], ["Valeur théorique (PA HT)", r2(tot.vth)], ["Valeur comptée (PA HT)", r2(tot.vct)], ["Écart en valeur", r2(tot.vct - tot.vth)], ["Démarque estimée (% de la valeur théorique)", tot.vth ? Math.round((tot.vct - tot.vth) / tot.vth * 10000) / 100 + " %" : ""]);
+    if(top.length){ syn.push(["", ""], ["10 plus gros écarts en valeur", ""]); top.forEach(r => syn.push([(r.name || r.code) + " (" + r.code + ")", Math.round(r.vec * 100) / 100])); }
+    syn.push(["", ""], ["Le prestataire garantit le comptage physique. L’explication des écarts et la valeur comptable du stock relèvent du client.", ""]);
+    return {ec, syn};
   }
 
   /* ===== Équipe en ligne (Firebase) =====
@@ -1025,7 +1249,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
       const go = () => {
         if(state.lines.length && !archiveCurrent()){ flash("Archivage impossible (mémoire pleine).", "bad"); return; }
         state = Object.assign(blank(), settingsOf(state));
-        state.mission = d.data().name || ""; state.team = {code, joinedAt: new Date().toISOString()}; state.sync = {lines:{}, zones:{}, logN:0};
+        loadMaster(); state.mission = d.data().name || ""; state.team = {code, joinedAt: new Date().toISOString()}; state.sync = {lines:{}, zones:{}, logN:0};
         lastErr = ""; lastDevW = 0; qtyBuf = ""; save(); render(); startListeners(); runSync(); teamSheet();
         flash("Tu as rejoint la mission " + code + ". Scanne ta première zone.", "ok");
       };
@@ -1069,7 +1293,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
         {name: "Contrôles", aoa: [["Zone comptée par plusieurs compteurs", "Détail (articles par compteur)"],
           ...(dbl.length ? dbl.map(([z, w]) => [z, Object.entries(w).map(([k, v]) => k + " : " + v).join(" | ")]) : [["Aucune zone en double", ""]])]}
       ];
-      const s = {mission: (state.mission || "mission") + "_equipe_" + state.team.code, lines, log, extraSheets: extra};
+      const s = {mission: (state.mission || "mission") + "_equipe_" + state.team.code, lines, log, extraSheets: extra, useMaster: true};
       const ok = await exportXlsx(s);
       if(ok && src === "cache") flash("Export fait SANS réseau : les derniers scans des autres téléphones peuvent manquer.", "bad");
       if(ok && dbl.length) flash("Export équipe fait. Attention : " + dbl.length + " zone(s) comptée(s) par plusieurs personnes (onglet Contrôles).", "bad");
@@ -1158,7 +1382,9 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     if(cam.pending){ beep(false); flash("Valide ou ignore d’abord le code " + cam.pending + ".", "bad"); return; }
     if(zoneRegex().test(code) || !state.zone || state.confirm === false){ handleCode(code, src); return; }
     if(state.check !== false && !eanValid(code)){ codeError(code, src); return; }
-    cam.pending = code; cam.psrc = src; beep(true); showPending();
+    cam.pending = code; cam.psrc = src;
+    if(master && !itemOf(code)){ beep(false); showPending(); flash("Attention : code inconnu du fichier client. Vérifie l’article avant de valider.", "bad"); return; }
+    beep(true); showPending();
     flash("Code lu : tape la quantité si besoin, puis « Valider ».", "");
   }
   function onCamMiss(){
@@ -1242,6 +1468,8 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   });
   document.addEventListener("visibilitychange", () => { if(document.hidden && cam.on) stopCam(); });
 
+  if(!state.startedAt){ state.startedAt = new Date().toISOString(); save(); }
+  loadMaster();
   render(); focusScan(); teamBoot();
   if(state.zone){ const n = linesOf(state.zone).length; flash("Zone " + state.zone + " en cours : " + fmtLines(n) + " déjà comptée" + (n>1?"s":"") + ".", "zone"); }
   setInterval(updateStatus, 1500);

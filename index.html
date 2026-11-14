@@ -62,6 +62,10 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
 .dot{width:10px;height:10px;border-radius:50%;background:var(--ok);flex:none}
 .status.off .dot{background:var(--bad)}
 .status.off{color:var(--bad);font-weight:600}
+.status.ctrl{color:var(--act);font-weight:700}
+.status.ctrl .dot{background:var(--act)}
+body.control{background:color-mix(in srgb,var(--act) 10%,var(--bg))}
+body.control .tag{box-shadow:0 0 0 3px var(--act)}
 
 .flash{min-height:30px;border-radius:8px;padding:4px 10px;font-weight:600;display:flex;align-items:center;gap:8px;
   background:var(--surface);border:1px solid var(--line)}
@@ -70,6 +74,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
 .flash.zone{border-color:var(--tag);background:color-mix(in srgb,var(--tag) 22%,var(--surface))}
 
 .list{flex:1 1 0;min-height:0;overflow-y:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px}
+.list:empty{flex:0 0 0;min-height:0;border:0}
 .row{display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;border:0;border-bottom:1px solid var(--line);background:none;text-align:left}
 .row:last-child{border-bottom:0}
 .row .code{flex:1;font-size:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
@@ -85,8 +90,8 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
 .qty.set{border-color:var(--act)}
 .qty.set .val{color:var(--act)}
 
-.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
-.pad button{background:var(--key);border:1px solid var(--line);border-radius:10px;height:clamp(38px,6vh,58px);font-size:26px;font-weight:600}
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.pad button{background:var(--key);border:1px solid var(--line);border-radius:12px;height:clamp(52px,9vh,76px);font-size:32px;font-weight:700}
 .pad button:active{background:var(--line)}
 .pad .fn{font-size:16px;font-family:"Barlow",system-ui,sans-serif}
 .actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
@@ -201,17 +206,16 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   .qty{padding:2px 12px}
   .qty .val{font-size:30px}
   .qty .lbl{font-size:13px}
-  .pad{gap:5px}
-  .pad button{height:clamp(34px,5.3vh,50px);font-size:23px}
-  .pad .fn{font-size:14px}
+  .pad{gap:6px}
+  .pad button{height:clamp(46px,8vh,66px);font-size:29px}
+  .pad .fn{font-size:16px}
   .manual input{font-size:19px;padding:6px 10px}
   .manual button{font-size:15px}
-  .actions button{padding:8px 3px;font-size:13px}
+  .actions button{padding:9px 3px;font-size:13px}
 }
 @media (max-height:600px){
-  .pad button{height:clamp(30px,4.6vh,44px);font-size:21px}
+  .pad button{height:clamp(42px,7.2vh,58px);font-size:27px}
   .tag strong{font-size:26px}
-  .list{min-height:40px}
 }
 </style>
 </head>
@@ -422,7 +426,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     } else if(!z){
       list.innerHTML = '<div class="emptymsg">Scanne l’étiquette de zone (par exemple ' + esc((state.prefix||"Z")+"001") + ') ou touche « Zones » pour en ouvrir une.</div>';
     } else if(!zl.length){
-      list.innerHTML = '<div class="emptymsg">Zone vide. Scanne un article : il compte pour 1. Pour un lot, tape d’abord la quantité, puis scanne.</div>';
+      list.innerHTML = "";
     } else {
       const rows = zl.slice(-60).reverse();
       list.innerHTML = rows.map((l,i) =>
@@ -456,6 +460,12 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   function focusScan(){ if(!sheetOpen){ try{ scan.focus({preventScroll:true}); }catch(e){ scan.focus(); } } updateStatus(); }
   function isTypingField(){ const a = document.activeElement; return a && a !== scan && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable); }
   function updateStatus(){
+    if(controlMode){
+      $("status").classList.add("ctrl"); $("status").classList.remove("off","typing");
+      $("statusTxt").textContent = "MODE CONTRÔLE — vérification, aucun comptage";
+      return;
+    }
+    $("status").classList.remove("ctrl");
     const typing = document.activeElement === $("manualCode");
     const on = document.hasFocus() && !sheetOpen && !typing;
     $("status").classList.toggle("typing", typing);
@@ -712,7 +722,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     if(!v){ flash("Tape le code de l’article avant d’ajouter.", "bad"); mc.focus(); return; }
     if(cam.pending){ beep(false); flash("Valide ou ignore d’abord le code " + cam.pending + ".", "bad"); return; }
     mc.value = ""; mc.setAttribute("inputmode","numeric"); $("manualBtn").textContent = "Code avec lettres";
-    mc.blur(); handleCode(v, "manuel"); focusScan();
+    mc.blur(); if(controlMode){ controlScan(v.replace(/\s+/g,""), "manuel"); focusScan(); return; } handleCode(v, "manuel"); focusScan();
   }
   $("manualAdd").addEventListener("pointerdown", e => e.preventDefault());
   $("manualAdd").addEventListener("click", addManual);
@@ -840,13 +850,14 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
       '<div class="btnrow"><button class="btn" id="xB">Tester le bip</button></div>'+
       '<div class="btnrow"><button class="btn primary" id="xX">Exporter Excel</button><button class="btn" id="xC">Exporter CSV</button></div>'+
       '<p>Excel contient trois onglets : total par code, détail par zone et journal des corrections ('+(state.log||[]).length+'). Les codes restent en texte.</p>'+
+      '<div class="btnrow"><button class="btn'+(controlMode?' primary':'')+'" id="xCtrl">'+(controlMode ? 'Mode contrôle : ACTIVÉ ✓' : 'Mode contrôle (vérification client)')+'</button></div>'+
       '<div class="btnrow"><button class="btn primary" id="xMaster">'+(master ? 'Stock théorique ('+master.items.length+' réf.)' : 'Charger le stock théorique')+'</button>'+(master ? '<button class="btn primary" id="xEc">Écarts</button>' : '')+'</div>'+
       '<div class="btnrow"><button class="btn primary" id="xTeam">Équipe en ligne'+(state.team ? ' ('+esc(state.team.code)+')' : '')+'</button></div>'+
       '<div class="btnrow"><button class="btn" id="xMerge">Fusionner l’export d’un autre téléphone</button></div>'+
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 22 du 15/11/2026</p>');
+      '<p style="font-size:13px">Version 23 du 15/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -855,6 +866,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     $("xMerge").onclick = () => { keep(); pickMergeFile(); };
     $("xTeam").onclick = () => { keep(); teamSheet(); };
     $("xMaster").onclick = () => { keep(); masterSheet(); };
+    $("xCtrl").onclick = () => { keep(); closeSheet(); setControl(!controlMode); };
     if(master) $("xEc").onclick = () => { keep(); ecartsSheet("ec"); };
     $("xC").onclick = () => { keep(); exportCsv(); };
     $("xNew").onclick = () => { keep(); newMissionSheet(); };
@@ -1542,6 +1554,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     const now = Date.now();
     if(src === "scan" && code === lastScan.code && now - lastScan.t < 500){ lastScan.t = now; return; }
     lastScan = {code, t: now};
+    if(controlMode){ controlScan(code, src); return; }
     if(state.finished){ missionClosedError(code); return; }
     if(cam.pending){ beep(false); flash("Valide ou ignore d’abord le code " + cam.pending + ".", "bad"); return; }
     if(zoneRegex().test(code) || !state.zone || state.confirm === false){ handleCode(code, src); return; }
@@ -1553,6 +1566,33 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   }
   function onCamMiss(){
     if(++cam.misses >= 8){ cam.block = ""; cam.cand = ""; cam.candN = 0; }
+  }
+  /* ===== Mode contrôle : vérifier sans compter ni rouvrir ===== */
+  let controlMode = false;
+  function setControl(on){
+    controlMode = on;
+    document.body.classList.toggle("control", on);
+    updateStatus();
+    if(on) flash("MODE CONTRÔLE activé : scanne une zone ou un article pour vérifier. Rien n’est compté, aucune zone n’est rouverte.", "zone");
+    else flash("Mode contrôle désactivé : retour au comptage.", "");
+  }
+  function controlScan(code, src){
+    code = String(code || "").replace(/\s+/g, ""); if(!code) return;
+    if(zoneRegex().test(code)){
+      const z = code.toUpperCase(), zl = linesOf(z);
+      const done = zl.length > 0 || (state.closed || []).includes(z) || !!((state.zoneTimes || {})[z]);
+      if(done){ beep(true, "zone"); flash("✓ Zone " + z + " FAITE : " + fmtLines(zl.length) + ", " + fmtQty(sum(zl)) + ".", "ok"); }
+      else { beep(false); flash("✗ Zone " + z + " PAS ENCORE comptée.", "bad"); }
+      return;
+    }
+    const hits = state.lines.filter(l => normCode(l.code) === normCode(code));
+    const nm = master ? (nameOf(code) || "Inconnu du fichier client") : "";
+    if(hits.length){
+      const q = hits.reduce((a, l) => a + l.qty, 0), zones = [...new Set(hits.map(l => l.zone))].sort().join(" ");
+      beep(true); flash("✓ Scanné : " + (nm ? nm + " · " : "") + "qté " + q + " (zone " + zones + ")", "ok");
+    } else {
+      beep(false); flash("✗ Article NON scanné" + (nm ? " : " + nm : "") + " · " + code, "bad");
+    }
   }
   function camValidate(){
     if(!cam.pending) return;

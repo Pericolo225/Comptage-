@@ -382,12 +382,15 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   function render(){
     const z = state.zone;
     $("tagBtn").classList.toggle("empty", !z);
-    $("zoneName").textContent = z || "À scanner";
+    $("zoneName").textContent = state.finished ? "Clôturée" : (z || "À scanner");
     const zl = z ? linesOf(z) : [];
     $("zoneQty").textContent = fmtQty(sum(zl));
-    $("zoneLines").textContent = z ? fmtLines(zl.length) + " dans la zone" : "Aucune zone ouverte";
+    $("zoneLines").textContent = state.finished ? "Mission terminée" : (z ? fmtLines(zl.length) + " dans la zone" : "Aucune zone ouverte");
+    if(state.finished){ $("zoneQty").textContent = fmtQty(sum(state.lines)); }
     const list = $("list");
-    if(!z){
+    if(state.finished){
+      list.innerHTML = '<div class="emptymsg">Mission clôturée le ' + new Date(state.finished).toLocaleString("fr-FR") + ' : ' + fmtLines(state.lines.length) + ', ' + fmtQty(sum(state.lines)) + '. Les scans sont bloqués.<br><br>Menu : exporter, voir les écarts, rouvrir la mission ou en commencer une nouvelle.</div>';
+    } else if(!z){
       list.innerHTML = '<div class="emptymsg">Scanne l’étiquette de zone (par exemple ' + esc((state.prefix||"Z")+"001") + ') ou touche « Zones » pour en ouvrir une.</div>';
     } else if(!zl.length){
       list.innerHTML = '<div class="emptymsg">Zone vide. Scanne un article : il compte pour 1. Pour un lot, tape d’abord la quantité, puis scanne.</div>';
@@ -453,6 +456,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   }
   function handleCode(raw, src, force){
     const code = raw.replace(/\s+/g,"");
+    if(state.finished){ missionClosedError(code); return; }
     if(zoneRegex().test(code)){ openZone(code.toUpperCase()); return; }
     if(!state.zone){ zoneError(code); return; }
     if(state.check !== false && !eanValid(code)){ codeError(code, src); return; }
@@ -499,7 +503,43 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     }
   }
   function markClosed(z){ state.closed = state.closed || []; if(z && !state.closed.includes(z)) state.closed.push(z); }
+  function missionClosedError(code){
+    if(cam.on){ cam.block = code; cam.misses = 0; }
+    beep(false); flash("Mission clôturée : scan refusé.", "bad");
+    openSheet('<h2>Mission clôturée</h2>'+(code ? '<p class="num" style="font-size:20px;color:var(--ink)">'+esc(code)+'</p>' : '')+
+      '<p>Cette mission est terminée : plus aucun scan n’est enregistré. Tu peux toujours l’exporter, voir les zones et les écarts.</p>'+
+      '<div class="btnrow"><button class="btn primary" id="mcOk">Compris</button></div>'+
+      '<div class="btnrow"><button class="btn" id="mcReopen">Rouvrir la mission</button><button class="btn" id="mcNew">Nouvelle mission</button></div>');
+    $("sheet").classList.add("errsheet");
+    $("mcOk").onclick = closeSheet;
+    $("mcReopen").onclick = reopenMission;
+    $("mcNew").onclick = () => { closeSheet(); newMissionSheet(); };
+  }
+  function finishMission(){
+    if(cam.pending){ beep(false); flash("Valide ou ignore d’abord le code " + cam.pending + ".", "bad"); return; }
+    if(state.finished){ flash("Mission déjà clôturée.", ""); return; }
+    const exp = isExported();
+    openSheet('<h2>Clôturer la mission ?</h2>'+
+      '<p>La zone en cours sera fermée et les scans bloqués. La mission reste affichée : tu pourras l’exporter, consulter les zones et les écarts, ou la rouvrir si besoin.</p>'+
+      (exp ? '<div class="expst ok">Mission exportée.</div>' : '<div class="expst no">Pas encore exportée depuis la dernière modification.</div>')+
+      '<div class="btnrow"><button class="btn" id="fmNo">Annuler</button><button class="btn primary" id="fmOk">Clôturer'+(exp ? '' : ' et exporter')+'</button></div>');
+    $("fmNo").onclick = closeSheet;
+    $("fmOk").onclick = () => {
+      if(state.zone){ segClose(state.zone); if(linesOf(state.zone).length) markClosed(state.zone); state.zone = null; }
+      state.finished = new Date().toISOString();
+      logAct("Clôture de la mission", "", "", sum(state.lines), "");
+      qtyBuf = ""; if(cam.on) stopCam(); save(); render(); closeSheet(); beep(true, "zone");
+      flash("Mission clôturée : " + fmtLines(state.lines.length) + ", " + fmtQty(sum(state.lines)) + ".", "ok");
+      if(!exp) exportXlsx();
+    };
+  }
+  function reopenMission(){
+    if(!state.finished) return;
+    state.finished = null; logAct("Réouverture de la mission", "", "", "", "");
+    save(); render(); closeSheet(); flash("Mission rouverte : scanne une zone pour reprendre.", "zone");
+  }
   function openZone(z, force){
+    if(state.finished){ missionClosedError(z); return; }
     if(cam.pending){ beep(false); flash("Valide ou ignore d’abord le code " + cam.pending + ".", "bad"); return; }
     if(z === state.zone){ flash("Zone " + z + " déjà ouverte : continue le comptage.", "zone"); beep(true, "zone"); return; }
     const tz = state.team && teamZones[z];
@@ -749,8 +789,9 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
       '<div class="btnrow"><button class="btn primary" id="xTeam">Équipe en ligne'+(state.team ? ' ('+esc(state.team.code)+')' : '')+'</button></div>'+
       '<div class="btnrow"><button class="btn" id="xMerge">Fusionner l’export d’un autre téléphone</button></div>'+
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
+      '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 15 du 14/11/2026</p>');
+      '<p style="font-size:13px">Version 19 du 14/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -762,6 +803,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     if(master) $("xEc").onclick = () => { keep(); ecartsSheet("ec"); };
     $("xC").onclick = () => { keep(); exportCsv(); };
     $("xNew").onclick = () => { keep(); newMissionSheet(); };
+    $("xFin").onclick = () => { keep(); state.finished ? reopenMission() : finishMission(); };
   });
 
   /* Productivity */
@@ -1445,6 +1487,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     const now = Date.now();
     if(src === "scan" && code === lastScan.code && now - lastScan.t < 500){ lastScan.t = now; return; }
     lastScan = {code, t: now};
+    if(state.finished){ missionClosedError(code); return; }
     if(cam.pending){ beep(false); flash("Valide ou ignore d’abord le code " + cam.pending + ".", "bad"); return; }
     if(zoneRegex().test(code) || !state.zone || state.confirm === false){ handleCode(code, src); return; }
     if(state.check !== false && !eanValid(code)){ codeError(code, src); return; }

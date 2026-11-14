@@ -7,7 +7,7 @@
 <script src="xlsx.full.min.js"></script>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#FFD23F">
-<link rel="icon" href="icon-192.png">
+<link rel="icon" href="logo-192.png">
 <style>
 @font-face{font-family:"Barlow";font-weight:400;font-display:swap;src:url(barlow-latin-400-normal.woff2) format("woff2")}
 @font-face{font-family:"Barlow";font-weight:500;font-display:swap;src:url(barlow-latin-500-normal.woff2) format("woff2")}
@@ -791,7 +791,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 19 du 14/11/2026</p>');
+      '<p style="font-size:13px">Version 20 du 14/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

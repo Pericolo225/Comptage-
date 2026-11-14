@@ -338,7 +338,9 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
   }
   /* Insistent alarm, repeated until the sheet is closed */
   let alarmTimer = null;
-  function alarmStart(){
+  /* "strong": siren repeated until the sheet closes (new mission).
+     "once": the same harsh siren played a single time (zone already closed). */
+  function alarmStart(mode){
     alarmStop();
     const play = () => {
       const ctx = getCtx();
@@ -347,7 +349,8 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
       }catch(e){} }
       try{ navigator.vibrate && navigator.vibrate([300,100,300,100,300]); }catch(e){}
     };
-    play(); alarmTimer = setInterval(play, 1200);
+    play();
+    if(mode !== "once") alarmTimer = setInterval(play, 1200);
   }
   function alarmStop(){ if(alarmTimer){ clearInterval(alarmTimer); alarmTimer = null; try{ navigator.vibrate && navigator.vibrate(0); }catch(e){} } }
   function flash(msg, kind){ const f = $("flash"); f.className = "flash " + (kind||""); f.textContent = msg; }
@@ -485,8 +488,8 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
         '<p><b>'+esc(who)+'</b> '+(open ? 'est en train de compter cette zone' : 'a déjà compté et fermé cette zone')+' (depuis '+new Date(tz.at).toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"})+'). La compter aussi ici risque de doubler le stock.</p>'+
         '<div class="btnrow"><button class="btn primary" id="roNo">Ne pas l’ouvrir</button></div>'+
         '<div class="btnrow"><button class="btn danger" id="roOk">L’ouvrir quand même</button></div>');
-      $("sheet").classList.add("errsheet","alarm");
-      alarmStart();
+      $("sheet").classList.add("errsheet");
+      alarmStart("once");
       $("roNo").onclick = () => { closeSheet(); flash("Zone " + z + " non ouverte.", ""); };
       $("roOk").onclick = () => { closeSheet(); logAct("Zone ouverte malgré le comptage de " + who, z, "", "", ""); openZone(z, true); };
       return;
@@ -500,8 +503,8 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
         '<p>Pour la refaire entièrement, utilise plutôt « Recompter » dans Zones.</p>'+
         '<div class="btnrow"><button class="btn primary" id="roNo">Ne pas rouvrir</button></div>'+
         '<div class="btnrow"><button class="btn danger" id="roOk">Rouvrir quand même</button></div>');
-      $("sheet").classList.add("errsheet","alarm");
-      alarmStart();
+      $("sheet").classList.add("errsheet");
+      alarmStart("once");
       $("roNo").onclick = () => { closeSheet(); flash("Zone " + z + " laissée fermée.", ""); };
       $("roOk").onclick = () => { closeSheet(); logAct("Réouverture d’une zone fermée", z, "", sum(zl), ""); openZone(z, true); };
       return;
@@ -720,7 +723,7 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
       '<div class="btnrow"><button class="btn" id="xMerge">Fusionner l’export d’un autre téléphone</button></div>'+
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 11 du 14/11/2026</p>');
+      '<p style="font-size:13px">Version 13 du 14/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -757,13 +760,25 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
     if(!state.lines.length){ startNew(); return; }
     const exp = isExported();
     openSheet('<h2>Nouvelle mission ?</h2>'+
+      '<div class="expst no">ALERTE : le comptage en cours va quitter l’écran. Vérifie que tu ne t’es pas trompé de bouton.</div>'+
       '<div class="expst '+(exp ? 'ok">Mission exportée.' : 'no">Attention : la mission en cours n’a pas été exportée depuis la dernière modification.')+'</div>'+
       '<p>La mission en cours ('+fmtLines(state.lines.length)+', '+fmtQty(sum(state.lines))+') sera rangée dans « Missions archivées ». Les '+MAX_ARCH+' dernières missions sont conservées sur ce terminal.</p>'+
       (exp ? '' : '<div class="btnrow"><button class="btn primary" id="nmX">Exporter Excel d’abord</button></div>')+
-      '<div class="btnrow"><button class="btn" id="nmNo">Annuler</button><button class="btn '+(exp ? 'primary' : 'danger')+'" id="nmOk">Archiver et commencer</button></div>');
-    $("nmNo").onclick = closeSheet;
-    $("nmOk").onclick = startNew;
-    if(!exp) $("nmX").onclick = () => exportXlsx().then(ok => { if(ok) newMissionSheet(); });
+      '<div class="btnrow"><button class="btn primary" id="nmNo">Annuler, garder ma mission</button></div>'+
+      '<div class="btnrow"><button class="btn danger" id="nmOk" disabled style="opacity:.5">Archiver et commencer (5)</button></div>');
+    $("sheet").classList.add("errsheet","alarm");
+    alarmStart("strong");
+    let left = 5;
+    const ok = $("nmOk");
+    const tick = setInterval(() => {
+      if(!sheetOpen || !document.body.contains(ok)){ clearInterval(tick); return; }
+      left--;
+      if(left > 0){ ok.textContent = "Archiver et commencer (" + left + ")"; }
+      else { clearInterval(tick); ok.disabled = false; ok.style.opacity = ""; ok.textContent = "Archiver et commencer"; }
+    }, 1000);
+    $("nmNo").onclick = () => { clearInterval(tick); closeSheet(); flash("Mission conservée.", "ok"); };
+    ok.onclick = () => { if(ok.disabled) return; clearInterval(tick); startNew(); };
+    if(!exp) $("nmX").onclick = () => { clearInterval(tick); alarmStop(); exportXlsx().then(r => { if(r) newMissionSheet(); }); };
   }
   function archSheet(){
     const a = loadArch();

@@ -696,13 +696,13 @@ body.control .tag{box-shadow:0 0 0 3px var(--act)}
       '<div class="totals"><span><b class="num">'+sum(zl)+'</b> articles</span><span><b class="num">'+zl.length+'</b> scans</span><span><b class="num">'+nCodes+'</b> codes</span></div>'+
       '<div class="seg"><button id="dScan" class="'+(mode==="code"?'':'on')+'">Par scan</button><button id="dCode" class="'+(mode==="code"?'on':'')+'">Total par code</button></div>'+
       (zl.length ? '<div class="dlist">'+rows+'</div>' : '<p>Aucun article compté dans cette zone.</p>')+
-      (mode==="code" ? '' : '<p style="font-size:14px">Touche une ligne pour corriger sa quantité ou la supprimer.</p>')+
+      (mode==="code" || controlMode ? '' : '<p style="font-size:14px">Touche une ligne pour corriger sa quantité ou la supprimer.</p>')+
       '<div class="btnrow"><button class="btn" id="dBack">Retour aux zones</button><button class="btn" id="dNo">Fermer</button></div>');
     $("dScan").onclick = () => zoneDetail(z, "scan");
     $("dCode").onclick = () => zoneDetail(z, "code");
     $("dBack").onclick = zonesSheet;
     $("dNo").onclick = closeSheet;
-    $("sheet").querySelectorAll("[data-line]").forEach(b => b.onclick = () => editLine(+b.dataset.line, () => zoneDetail(z, "scan")));
+    $("sheet").querySelectorAll("[data-line]").forEach(b => b.onclick = () => { if(controlMode) return; editLine(+b.dataset.line, () => zoneDetail(z, "scan")); });
   }
   function editLine(id, back){
     const done = () => back ? back() : closeSheet();
@@ -857,7 +857,7 @@ body.control .tag{box-shadow:0 0 0 3px var(--act)}
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 24 du 15/11/2026</p>');
+      '<p style="font-size:13px">Version 25 du 15/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -1581,7 +1581,7 @@ body.control .tag{box-shadow:0 0 0 3px var(--act)}
     if(zoneRegex().test(code)){
       const z = code.toUpperCase(), zl = linesOf(z);
       const done = zl.length > 0 || (state.closed || []).includes(z) || !!((state.zoneTimes || {})[z]);
-      if(done){ beep(true, "zone"); flash("✓ Zone " + z + " FAITE : " + fmtLines(zl.length) + ", " + fmtQty(sum(zl)) + ".", "ok"); }
+      if(done){ beep(true, "zone"); flash("✓ Zone " + z + " FAITE : " + fmtLines(zl.length) + ", " + fmtQty(sum(zl)) + ".", "ok"); zoneDetail(z, "code"); }
       else { beep(false); flash("✗ Zone " + z + " PAS ENCORE comptée.", "bad"); }
       return;
     }

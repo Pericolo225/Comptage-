@@ -616,8 +616,12 @@ body.control .ctrlbar{display:block}
     segClose(z); markClosed(z);
     state.zone = null; qtyBuf = ""; save(); render(); beep(true, "zone");
     flash("Zone " + z + " fermée : " + fmtLines(zl.length) + ", " + fmtQty(sum(zl)) + ". Scanne la zone suivante.", "zone");
-    if(state.autoBackup !== false && state.lines.length){
-      exportXlsx(state, {silent:true, suffix:"_sauvegarde"}).then(ok => { if(ok) flash("Zone " + z + " fermée (" + fmtQty(sum(zl)) + "). Sauvegarde Excel dans Téléchargements.", "zone"); });
+    if(state.lines.length){
+      const dn = driveEnabled() ? driveNameZone(z) : null;
+      if(state.autoBackup !== false || dn){
+        exportXlsx(state, {silent:true, suffix:"_sauvegarde", noLocal: state.autoBackup === false, driveName: dn})
+          .then(ok => { if(ok && state.autoBackup !== false) flash("Zone " + z + " fermée (" + fmtQty(sum(zl)) + "). Sauvegarde Excel dans Téléchargements.", "zone"); });
+      }
     }
   }
   function markClosed(z){ state.closed = state.closed || []; if(z && !state.closed.includes(z)) state.closed.push(z); }
@@ -648,7 +652,9 @@ body.control .ctrlbar{display:block}
       logAct("Clôture de la mission", "", "", sum(state.lines), "");
       qtyBuf = ""; if(cam.on) stopCam(); save(); render(); closeSheet(); beep(true, "zone");
       flash("Mission clôturée : " + fmtLines(state.lines.length) + ", " + fmtQty(sum(state.lines)) + ".", "ok");
-      if(!exp) exportXlsx();
+      const dn = driveEnabled() ? driveNameMission(state) : null;
+      if(!exp) exportXlsx(state, {driveName: dn});
+      else if(dn) exportXlsx(state, {noLocal:true, silent:true, driveName: dn});
     };
   }
   function reopenMission(){
@@ -878,6 +884,8 @@ body.control .ctrlbar{display:block}
     (s.extraSheets || []).forEach(x => { const ws = XLSX.utils.aoa_to_sheet(x.aoa); ws["!cols"] = [{wch:22},{wch:14},{wch:12},{wch:40}]; XLSX.utils.book_append_sheet(wb, ws, x.name); });
     const buf = XLSX.write(wb, {bookType:"xlsx", type:"array"});
     const sig = sigOf(s);
+    if(opt.driveName) driveSave(opt.driveName + ".xlsx", buf, {quiet: !!opt.silent});
+    if(opt.noLocal) return true;
     const ok = await saveFile(baseName(s) + (opt.suffix||"") + ".xlsx", new Blob([buf]), opt.silent);
     if(ok && s === state){ state.exportedSig = sig; save(); }
     return ok;
@@ -888,6 +896,69 @@ body.control .ctrlbar{display:block}
     const csv = "\uFEFF" + rows.map(r => r.map(v => { const s = String(v); return /[;"\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; }).join(";")).join("\r\n");
     await saveFile(baseName() + "_consolide.csv", csv);
   }
+
+  /* ===== Google Drive : sauvegarde automatique ===== */
+  const DRIVE = { clientId:"186328117651-mulajjeua2nml9us8gr9brs8rr0eckmo.apps.googleusercontent.com", scope:"https://www.googleapis.com/auth/drive.file", folderName:"Inventaire Comptage", token:null, exp:0, tokenClient:null, gisLoaded:false };
+  function driveEnabled(){ try{ return localStorage.getItem("comptage-drive")==="1"; }catch(e){ return false; } }
+  function dateStr(){ const d=new Date(),p=n=>String(n).padStart(2,"0"); return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate()); }
+  function hhmm(){ const d=new Date(),p=n=>String(n).padStart(2,"0"); return p(d.getHours())+"h"+p(d.getMinutes()); }
+  function missionSan(s){ s=s||state; return ((s.mission||"inventaire").replace(/[^\p{L}\p{N}_-]+/gu," ").trim().slice(0,40))||"inventaire"; }
+  function driveNameZone(z){ return missionSan()+" - "+z+" - "+dateStr()+"_"+hhmm(); }
+  function driveNameMission(s){ return missionSan(s)+" - MISSION - "+dateStr()+"_"+hhmm(); }
+  function loadGis(){ if(DRIVE.gisLoaded && window.google && google.accounts) return Promise.resolve();
+    return new Promise((res,rej)=>{ if(window.google && google.accounts && google.accounts.oauth2){ DRIVE.gisLoaded=true; return res(); }
+      const s=document.createElement("script"); s.src="https://accounts.google.com/gsi/client"; s.async=true; s.defer=true;
+      s.onload=()=>{ DRIVE.gisLoaded=true; res(); }; s.onerror=()=>rej(new Error("gis_load")); document.head.appendChild(s); }); }
+  async function driveToken(interactive){
+    if(DRIVE.token && Date.now() < DRIVE.exp-60000) return DRIVE.token;
+    await loadGis();
+    return new Promise((res,rej)=>{
+      const cb=(resp)=>{ if(resp && resp.access_token){ DRIVE.token=resp.access_token; DRIVE.exp=Date.now()+((resp.expires_in||3300)*1000); res(DRIVE.token); } else rej(new Error("no_token")); };
+      try{
+        if(!DRIVE.tokenClient){ DRIVE.tokenClient=google.accounts.oauth2.initTokenClient({ client_id:DRIVE.clientId, scope:DRIVE.scope, callback:cb, error_callback:(e)=>rej(e||new Error("oauth")) }); }
+        else { DRIVE.tokenClient.callback=cb; }
+        DRIVE.tokenClient.requestAccessToken({ prompt: interactive ? "consent" : "" });
+      }catch(e){ rej(e); }
+    });
+  }
+  async function driveFolder(token){ let id=null; try{ id=localStorage.getItem("comptage-drive-folder"); }catch(e){}
+    if(id) return id;
+    const r=await fetch("https://www.googleapis.com/drive/v3/files?fields=id",{method:"POST",headers:{Authorization:"Bearer "+token,"Content-Type":"application/json"},body:JSON.stringify({name:DRIVE.folderName,mimeType:"application/vnd.google-apps.folder"})});
+    if(!r.ok) throw new Error("folder_"+r.status); const j=await r.json(); id=j.id; try{ localStorage.setItem("comptage-drive-folder",id); }catch(e){} return id; }
+  async function driveUploadRaw(token,folderId,filename,buf){
+    const boundary="comptage"+Date.now();
+    const body=new Blob(["--"+boundary+"\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n", JSON.stringify({name:filename,parents:[folderId]})+"\r\n", "--"+boundary+"\r\nContent-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n", new Blob([buf]), "\r\n--"+boundary+"--"]);
+    const r=await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name",{method:"POST",headers:{Authorization:"Bearer "+token,"Content-Type":"multipart/related; boundary="+boundary},body});
+    if(!r.ok) throw new Error("upload_"+r.status); return r.json(); }
+  function bufToB64(buf){ const b=new Uint8Array(buf); let bin="",c=0x8000; for(let i=0;i<b.length;i+=c) bin+=String.fromCharCode.apply(null,b.subarray(i,i+c)); return btoa(bin); }
+  function b64ToBuf(b64){ const bin=atob(b64),u=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i); return u; }
+  function driveQueueGet(){ try{ return JSON.parse(localStorage.getItem("comptage-drive-queue")||"[]"); }catch(e){ return []; } }
+  function driveQueueSet(q){ try{ localStorage.setItem("comptage-drive-queue",JSON.stringify(q.slice(-40))); }catch(e){} }
+  function driveQueuePush(filename,buf){ const q=driveQueueGet(); q.push({name:filename,b64:bufToB64(buf),t:Date.now()}); driveQueueSet(q); }
+  async function driveFlushQueue(){ if(!driveEnabled()) return; const q=driveQueueGet(); if(!q.length) return;
+    let token,folder; try{ token=await driveToken(false); folder=await driveFolder(token); }catch(e){ return; }
+    const rest=[]; for(const it of q){ try{ await driveUploadRaw(token,folder,it.name,b64ToBuf(it.b64)); }catch(e){ rest.push(it); } }
+    driveQueueSet(rest); if(rest.length<q.length) flash((q.length-rest.length)+" fichier(s) en attente envoyé(s) dans Drive.","ok"); }
+  async function driveSave(filename,buf,opt){ opt=opt||{}; if(!driveEnabled()) return;
+    try{ const token=await driveToken(opt.interactive===true); const folder=await driveFolder(token); await driveUploadRaw(token,folder,filename,buf);
+      flash("Sauvegardé dans Google Drive : "+filename,"ok"); driveFlushQueue(); }
+    catch(e){ driveQueuePush(filename,buf); if(!opt.quiet) flash("Drive indisponible : "+filename+" mis en attente.",""); } }
+  async function driveConnect(){ try{ const token=await driveToken(true); try{ localStorage.setItem("comptage-drive","1"); }catch(e){} await driveFolder(token);
+      flash("Google Drive connecté : zones et missions y seront sauvegardées.","ok"); driveFlushQueue(); }
+    catch(e){ flash("Connexion Google Drive annulée ou refusée.","bad"); } }
+  function driveDisconnect(){ try{ localStorage.removeItem("comptage-drive"); }catch(e){} DRIVE.token=null; DRIVE.exp=0; flash("Google Drive déconnecté : sauvegardes auto arrêtées.",""); }
+  function driveSheet(){ const q=driveQueueGet().length;
+    openSheet('<h2>Sauvegarde Google Drive</h2>'+
+      '<p>À chaque <b>zone fermée</b> et à la <b>clôture de mission</b>, le fichier Excel part automatiquement dans le dossier « '+DRIVE.folderName+' » de ton Google Drive.</p>'+
+      (driveEnabled()?'<div class="expst ok">Connecté : sauvegardes automatiques activées.</div>':'<div class="expst no">Non connecté : connecte-toi avec le compte Google de destination.</div>')+
+      (q?'<div class="expst no">'+q+' fichier(s) en attente d’envoi.</div>':'')+
+      '<div class="btnrow">'+(driveEnabled()?'<button class="btn" id="dDisc">Déconnecter</button><button class="btn primary" id="dFlush">Envoyer les fichiers en attente</button>':'<button class="btn primary" id="dConn">Connecter Google Drive</button>')+'</div>'+
+      '<div class="btnrow"><button class="btn" id="dNo">Fermer</button></div>'+
+      '<p style="font-size:13px">Choisis le compte de destination (2inventaire6@gmail.com) au moment de la connexion. L’app ne voit que les fichiers qu’elle crée — aucun accès au reste de ton Drive.</p>');
+    $("dNo").onclick=closeSheet;
+    if(driveEnabled()){ $("dDisc").onclick=()=>{ driveDisconnect(); closeSheet(); }; $("dFlush").onclick=async()=>{ flash("Envoi des fichiers en attente…",""); await driveFlushQueue(); if(sheetOpen) driveSheet(); }; }
+    else $("dConn").onclick=async()=>{ await driveConnect(); closeSheet(); }; }
+  window.addEventListener("online",()=>{ try{ driveFlushQueue(); }catch(e){} });
 
   $("menuBtn").addEventListener("click", () => {
     openSheet('<h2>Mission</h2>'+
@@ -906,11 +977,12 @@ body.control .ctrlbar{display:block}
       '<div class="btnrow"><button class="btn'+(controlMode?' primary':'')+'" id="xCtrl">'+(controlMode ? 'Mode contrôle : ACTIVÉ ✓' : 'Mode contrôle (vérification client)')+'</button></div>'+
       '<div class="btnrow"><button class="btn primary" id="xMaster">'+(master ? 'Stock théorique ('+master.items.length+' réf.)' : 'Charger le stock théorique')+'</button>'+(master ? '<button class="btn primary" id="xEc">Écarts</button>' : '')+'</div>'+
       '<div class="btnrow"><button class="btn primary" id="xTeam">Équipe en ligne'+(state.team ? ' ('+esc(state.team.code)+')' : '')+'</button></div>'+
+      '<div class="btnrow"><button class="btn'+(driveEnabled()?' primary':'')+'" id="xDrive">'+(driveEnabled()?'Google Drive : connecté ✓':'Sauvegarde Google Drive (auto)')+'</button></div>'+
       '<div class="btnrow"><button class="btn" id="xMerge">Fusionner l’export d’un autre téléphone</button></div>'+
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 29 du 15/11/2026</p>');
+      '<p style="font-size:13px">Version 30 du 16/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -918,6 +990,7 @@ body.control .ctrlbar{display:block}
     $("xArch").onclick = () => { keep(); archSheet(); };
     $("xMerge").onclick = () => { keep(); pickMergeFile(); };
     $("xTeam").onclick = () => { keep(); teamSheet(); };
+    $("xDrive").onclick = () => { keep(); driveSheet(); };
     $("xMaster").onclick = () => { keep(); masterSheet(); };
     $("xCtrl").onclick = () => { keep(); closeSheet(); setControl(!controlMode); };
     if(master) $("xEc").onclick = () => { keep(); ecartsSheet("ec"); };

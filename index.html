@@ -66,6 +66,11 @@ button:focus-visible{outline:3px solid var(--act);outline-offset:2px}
 .status.ctrl .dot{background:var(--act)}
 body.control{background:color-mix(in srgb,var(--act) 10%,var(--bg))}
 body.control .tag{box-shadow:0 0 0 3px var(--act)}
+/* Mode contrôle : on enlève tout le comptage */
+body.control #qtyBox,body.control #pad,body.control .actions{display:none!important}
+.ctrlbar{display:none;margin:8px 2px 4px;padding:14px 16px;border-radius:16px;background:var(--act);color:var(--actInk);font-weight:800;font-size:18px;line-height:1.25;letter-spacing:.3px}
+.ctrlbar small{display:block;font-weight:600;font-size:13px;opacity:.95;margin-top:6px;letter-spacing:0}
+body.control .ctrlbar{display:block}
 
 .flash{min-height:30px;border-radius:8px;padding:4px 10px;font-weight:600;display:flex;align-items:center;gap:8px;
   background:var(--surface);border:1px solid var(--line)}
@@ -239,6 +244,7 @@ body.control .tag{box-shadow:0 0 0 3px var(--act)}
   <div class="status" id="status"><span class="dot"></span><span id="statusTxt">Prêt à scanner</span><button class="pph" id="pph" title="Pièces par heure, pauses et temps morts compris"></button></div>
   <button class="team" id="team" hidden style="text-align:left"></button>
   <div class="flash" id="flash">Scanne l’étiquette de zone pour commencer.</div>
+  <div class="ctrlbar" id="ctrlbar">MODE CONTRÔLE CLIENT<small>Scanne une zone pour voir son détail, ou un article pour vérifier s’il est compté et où. Aucun comptage, aucune zone rouverte.</small></div>
 
   <div class="list" id="list"></div>
   <div class="cam" id="cam">
@@ -857,7 +863,7 @@ body.control .tag{box-shadow:0 0 0 3px var(--act)}
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 26 du 15/11/2026</p>');
+      '<p style="font-size:13px">Version 27 du 15/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -1572,6 +1578,9 @@ body.control .tag{box-shadow:0 0 0 3px var(--act)}
   function setControl(on){
     controlMode = on;
     document.body.classList.toggle("control", on);
+    $("manualAdd").textContent = on ? "Vérifier" : "Ajouter";
+    $("manualCode").placeholder = on ? "Code à vérifier : tape-le ici" : "Code non scanné : tape-le ici";
+    $("manualCode").setAttribute("inputmode", on ? "text" : "numeric");
     updateStatus();
     if(on) flash("MODE CONTRÔLE activé : scanne une zone ou un article pour vérifier. Rien n’est compté, aucune zone n’est rouverte.", "zone");
     else flash("Mode contrôle désactivé : retour au comptage.", "");

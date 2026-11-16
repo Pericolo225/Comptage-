@@ -6,7 +6,7 @@
 <title>Comptage par zones</title>
 <script src="xlsx.full.min.js"></script>
 <link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#152231">
+<meta name="theme-color" content="#15181D">
 <link rel="icon" href="logo-192.png">
 <style>
 @font-face{font-family:"Barlow";font-weight:400;font-display:swap;src:url(barlow-latin-400-normal.woff2) format("woff2")}
@@ -319,6 +319,93 @@ body.nohold .actions .hold small{display:none}
 .list{flex:1 1 0;min-height:46px}
 body.control .list{flex:1 1 0}
 @media (max-height:800px){ .appbar{display:none} }
+
+/* ===== v47 : thème « terminal pro » — plat, net, contrasté ===== */
+:root{
+  --bg:#E4E6E9; --surface:#FFFFFF; --surface2:#EFF1F3; --ink:#0F1216; --muted:#5C646E; --line:#CCD1D7;
+  --tag:#F2B705; --tagInk:#1A1400; --act:#0E5A8A; --actInk:#FFFFFF; --actSoft:#E1EDF5;
+  --ok:#147A3D; --bad:#C3271F; --key:#FFFFFF; --head:#15181D; --headInk:#F4F5F7; --headMuted:#9AA2AD; --headLine:#2B3038;
+  --r-sm:4px; --r-md:6px; --r-lg:8px; --sh-1:none; --sh-2:none; --sh-3:0 -2px 18px rgba(0,0,0,.18);
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0E1013; --surface:#181B20; --surface2:#20242A; --ink:#ECEEF1; --muted:#9AA2AD; --line:#2E333B;
+  --act:#4A9BD1; --actInk:#071018; --actSoft:#14283A; --ok:#3DB06B; --bad:#E5584F; --key:#181B20;
+  --head:#000000; --headLine:#262A31; --sh-1:none; --sh-2:none; --sh-3:0 -2px 18px rgba(0,0,0,.6);
+}}
+:root[data-theme="dark"]{
+  --bg:#0E1013; --surface:#181B20; --surface2:#20242A; --ink:#ECEEF1; --muted:#9AA2AD; --line:#2E333B;
+  --act:#4A9BD1; --actInk:#071018; --actSoft:#14283A; --ok:#3DB06B; --bad:#E5584F; --key:#181B20;
+  --head:#000000; --headLine:#262A31; --sh-1:none; --sh-2:none; --sh-3:0 -2px 18px rgba(0,0,0,.6);
+}
+.app{padding:0 6px 6px;gap:6px}
+.appbar{display:none}
+/* En-tête sombre type terminal */
+.head{background:var(--head);color:var(--headInk);margin:0 -6px;padding:8px 8px 6px;display:flex;flex-direction:column;gap:6px;flex:none}
+.head .top{gap:10px}
+.tag{border-radius:3px;padding:4px 12px 4px 24px;min-width:112px;box-shadow:none}
+.tag::before{left:8px;width:8px;height:8px;margin-top:-4px;background:var(--head);box-shadow:none}
+.tag small{font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;opacity:.75}
+.tag strong{font-size:30px;letter-spacing:.02em}
+.tag.empty strong{font-size:17px;text-transform:uppercase;letter-spacing:.04em}
+.head .stats .big{color:var(--headInk);font-size:22px;letter-spacing:.01em}
+.head .stats .small{color:var(--headMuted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.head .ghost{background:transparent;color:var(--headInk);border:1px solid #3B414B;border-radius:3px;padding:5px 12px;font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}
+.head .ghost:active{background:#262A31}
+.head .status{background:transparent;border:0;border-top:1px solid var(--headLine);border-radius:0;padding:6px 0 0;min-height:0;color:var(--headMuted);font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+.head .dot{width:7px;height:7px;box-shadow:none}
+.head .status.off{color:#FF6B63}
+.head .status.ctrl,.head .status.typing{color:#7CC2F0}
+.head .pph{background:#262A31;color:var(--headInk);border:0;border-radius:3px;font-size:14px;letter-spacing:.06em;padding:2px 8px}
+/* Bandeau de message : barre latérale colorée */
+.flash{border-radius:var(--r-sm);border:1px solid var(--line);border-left:4px solid var(--muted);background:var(--surface);min-height:30px;padding:5px 10px;font-weight:600}
+.flash.ok{border-color:var(--line);border-left-color:var(--ok);background:color-mix(in srgb,var(--ok) 7%,var(--surface));color:var(--ok)}
+.flash.bad{border-color:var(--line);border-left-color:var(--bad);background:color-mix(in srgb,var(--bad) 7%,var(--surface));color:var(--bad)}
+.flash.zone{border-color:var(--line);border-left-color:var(--tag);background:color-mix(in srgb,var(--tag) 12%,var(--surface))}
+.flash .qn{border-radius:3px}
+.vres .vico{border-radius:3px}
+.vres .vchip{border-radius:3px}
+/* Liste */
+.list{border-radius:var(--r-md);box-shadow:none}
+.row{padding:8px 12px}
+.row.latest{box-shadow:inset 4px 0 0 var(--tag);background:color-mix(in srgb,var(--tag) 9%,var(--surface))}
+.row .src{border-radius:3px;text-transform:uppercase;font-size:10px;letter-spacing:.08em}
+/* Saisie manuelle */
+.manual input{border:1px solid var(--line);border-radius:var(--r-sm);box-shadow:none}
+.manual input:focus{border:1px solid var(--act)}
+.manual input::placeholder{font-size:14px}
+.manual button{border-radius:var(--r-sm);text-transform:uppercase;letter-spacing:.08em;font-size:13px;box-shadow:none}
+.manual .cambtn{border-color:var(--line)}
+/* Quantité */
+.qty{border-radius:var(--r-sm);box-shadow:none;align-items:center}
+.qty .lbl{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+.qty.set{background:var(--actSoft)}
+/* Pavé : touches physiques, plates, bord inférieur marqué */
+.pad{gap:5px}
+.pad button{border-radius:var(--r-md);border:1px solid var(--line);border-bottom-width:3px;background:var(--key);box-shadow:none;color:var(--ink)}
+.pad button:active{transform:translateY(2px);border-bottom-width:1px;background:var(--surface2)}
+.pad .fn{background:var(--surface2);color:var(--muted);font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+.pad button.ok{background:var(--ok);border-color:color-mix(in srgb,var(--ok) 70%,#000);color:#fff;font-size:12px;letter-spacing:.1em}
+.pad button.ok.idle{background:var(--surface2);border-color:var(--line);color:var(--muted)}
+/* Actions */
+.actions{gap:5px}
+.actions button{border-radius:var(--r-sm);box-shadow:none;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:9px 3px}
+.actions .hold small{font-size:9px;letter-spacing:.06em;text-transform:none;font-weight:600}
+#closeZoneBtn{background:var(--tag)!important;color:var(--tagInk)!important;border-color:transparent!important}
+/* Feuilles */
+.veil{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(0,0,0,.55)}
+.sheet{border-radius:10px 10px 0 0!important}
+.sheet h2{font-family:"Barlow Condensed","Arial Narrow",sans-serif;text-transform:uppercase;letter-spacing:.04em}
+.btn{border-radius:var(--r-sm)!important;box-shadow:none!important}
+.ctrlbar{border-radius:var(--r-sm);box-shadow:none}
+.pending{border-radius:var(--r-sm);box-shadow:none}
+.pending button{border-radius:var(--r-sm)}
+.cam{border-radius:var(--r-md)}
+.cam .frame{border-radius:4px}
+/* Log on */
+.logon{background:var(--head)}
+.logon .lmark{border-radius:6px}
+.logon input{border-radius:4px;border-width:1px}
+.logon .lgo{border-radius:4px}
 </style>
 </head>
 <body>
@@ -327,6 +414,7 @@ body.control .list{flex:1 1 0}
     <span class="mark" aria-hidden="true"></span>
     <div class="brand"><strong>Comptage</strong><span>Inventaire par zones</span></div>
   </header>
+  <div class="head">
   <div class="top">
     <button class="tag empty" id="tagBtn" aria-label="Choisir une zone">
       <small>Zone</small><strong class="num" id="zoneName">À scanner</strong>
@@ -343,6 +431,7 @@ body.control .list{flex:1 1 0}
   </div>
 
   <div class="status" id="status"><span class="dot"></span><span id="statusTxt">Prêt à scanner</span><button class="pph" id="pph" title="Pièces par heure, pauses et temps morts compris"></button></div>
+  </div>
   <button class="team" id="team" hidden style="text-align:left"></button>
   <div class="flash" id="flash">Scanne l’étiquette de zone pour commencer.</div>
   <div class="ctrlbar" id="ctrlbar">MODE CONTRÔLE CLIENT<small>Scanne une zone pour voir son détail, ou un article pour vérifier s’il est compté et où. Aucun comptage, aucune zone rouverte.</small></div>
@@ -1193,7 +1282,7 @@ body.control .list{flex:1 1 0}
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 46 du 17/11/2026</p>');
+      '<p style="font-size:13px">Version 47 du 17/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

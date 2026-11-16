@@ -1019,7 +1019,7 @@ body.control .ctrlbar{display:block}
       '<label>Nom du compteur<input id="mw" value="'+esc(state.counter)+'" autocomplete="off" placeholder="Prénom et nom"></label>'+
       '<label>Nom du client ou de la mission<input id="mn" value="'+esc(state.mission)+'" autocomplete="off"></label>'+
       '<div class="expst '+(isExported() ? 'ok">Mission exportée : rien à perdre' : 'no">Mission pas encore exportée depuis la dernière modification')+'</div>'+
-      '<label class="chk"><input id="mv" type="checkbox"'+(state.confirm === false ? '' : ' checked')+'> Valider chaque scan (quantité puis « Valider »)</label>'+
+      '<label class="chk"><input id="mv" type="checkbox"'+(state.confirm === false ? '' : ' checked')+'> Valider les scans avec quantité (les articles à 1 sont comptés directement)</label>'+
       '<label class="chk"><input id="mck" type="checkbox"'+(state.check === false ? '' : ' checked')+'> Refuser les codes EAN invalides (mal lus ou mal tapés)</label>'+
       '<label class="chk"><input id="mab" type="checkbox"'+(state.autoBackup === false ? '' : ' checked')+'> Sauvegarde Excel automatique à chaque fermeture de zone</label>'+
       '<label>Demander confirmation à partir de la quantité<input id="mbq" type="number" inputmode="numeric" min="2" value="'+(parseInt(state.bigQty,10)||50)+'"></label>'+
@@ -1035,7 +1035,7 @@ body.control .ctrlbar{display:block}
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 40 du 16/11/2026</p>');
+      '<p style="font-size:13px">Version 41 du 16/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -1745,7 +1745,7 @@ body.control .ctrlbar{display:block}
     if(zoneRegex().test(code)) cam.block = code;
     receiveScan(code, "camera");
   }
-  /* Every article scan (scanner or camera) waits for "Valider" when the option is on */
+  /* Quantity-1 scans are counted at once; a scan with a typed quantity (or an unknown code) waits for "Valider" when the option is on */
   let lastScan = {code:"", t:0};
   function receiveScan(raw, src){
     const code = String(raw).replace(/\s+/g, "");
@@ -1758,6 +1758,11 @@ body.control .ctrlbar{display:block}
     if(cam.pending){ beep(false); flash("Valide ou ignore d’abord le code " + cam.pending + ".", "bad"); return; }
     if(zoneRegex().test(code) || !state.zone || state.confirm === false){ handleCode(code, src); return; }
     if(state.check !== false && !eanValid(code)){ codeError(code, src); return; }
+    /* Quantité 1 (aucune quantité tapée) et article connu : compté tout de suite, sans « Valider » */
+    if(qtyBuf === "" && !(master && !itemOf(code))){
+      if(src === "camera"){ cam.block = code; cam.misses = 0; }
+      handleCode(code, src); return;
+    }
     cam.pending = code; cam.psrc = src;
     if(master && !itemOf(code)){ beep(false); showPending(); flash("Attention : code inconnu du fichier client. Vérifie l’article avant de valider.", "bad"); return; }
     beep(true); showPending();

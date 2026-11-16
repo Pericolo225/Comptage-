@@ -898,7 +898,7 @@ body.control .ctrlbar{display:block}
   }
 
   /* ===== Google Drive : sauvegarde automatique ===== */
-  const DRIVE = { clientId:"186328117651-mulajjeua2nml9us8gr9brs8rr0eckmo.apps.googleusercontent.com", scope:"https://www.googleapis.com/auth/drive.file", folderName:"Inventaire Comptage", token:null, exp:0, tokenClient:null, gisLoaded:false };
+  const DRIVE = { clientId:"186328117651-mulajjeua2nml9us8gr9brs8rr0eckmo.apps.googleusercontent.com", scope:"https://www.googleapis.com/auth/drive.file", folderName:"Inventaire Comptage", account:"2inventaire6@gmail.com", token:null, exp:0, tokenClient:null, gisLoaded:false };
   function driveEnabled(){ try{ return localStorage.getItem("comptage-drive")==="1"; }catch(e){ return false; } }
   function dateStr(){ const d=new Date(),p=n=>String(n).padStart(2,"0"); return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate()); }
   function hhmm(){ const d=new Date(),p=n=>String(n).padStart(2,"0"); return p(d.getHours())+"h"+p(d.getMinutes()); }
@@ -915,9 +915,9 @@ body.control .ctrlbar{display:block}
     return new Promise((res,rej)=>{
       const cb=(resp)=>{ if(resp && resp.access_token){ DRIVE.token=resp.access_token; DRIVE.exp=Date.now()+((resp.expires_in||3300)*1000); res(DRIVE.token); } else rej(new Error("no_token")); };
       try{
-        if(!DRIVE.tokenClient){ DRIVE.tokenClient=google.accounts.oauth2.initTokenClient({ client_id:DRIVE.clientId, scope:DRIVE.scope, callback:cb, error_callback:(e)=>rej(e||new Error("oauth")) }); }
+        if(!DRIVE.tokenClient){ DRIVE.tokenClient=google.accounts.oauth2.initTokenClient({ client_id:DRIVE.clientId, scope:DRIVE.scope, hint:DRIVE.account, callback:cb, error_callback:(e)=>rej(e||new Error("oauth")) }); }
         else { DRIVE.tokenClient.callback=cb; }
-        DRIVE.tokenClient.requestAccessToken({ prompt: interactive ? "consent" : "" });
+        DRIVE.tokenClient.requestAccessToken({ prompt: interactive ? "consent" : "", hint: DRIVE.account });
       }catch(e){ rej(e); }
     });
   }
@@ -982,7 +982,7 @@ body.control .ctrlbar{display:block}
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 30 du 16/11/2026</p>');
+      '<p style="font-size:13px">Version 31 du 16/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

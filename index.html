@@ -1021,7 +1021,7 @@ body.control .ctrlbar{display:block}
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 38 du 16/11/2026</p>');
+      '<p style="font-size:13px">Version 39 du 16/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -1253,12 +1253,29 @@ body.control .ctrlbar{display:block}
   const nameOf = code => { const it = itemOf(code); return it ? it.name || it.ref || "" : ""; };
 
   const COLS = [
-    {k:"ean", lbl:"Code-barres (EAN)", req:true, re:/(ean|gtin|code.?barre|barcode|upc|cb\b|code ?ean)/i},
-    {k:"name", lbl:"Désignation", re:/(d[ée]signation|libell[ée]|nom|produit|article|description)/i},
-    {k:"ref", lbl:"Référence", re:/(r[ée]f|sku|code ?article|code ?interne)/i},
-    {k:"qty", lbl:"Stock théorique", req:true, re:/(stock|qt[ée]|quantit[ée]|th[ée]orique|disponible|en stock)/i},
-    {k:"cost", lbl:"Prix d’achat HT", re:/(prix ?d.?achat|pa\b|p\.a|co[uû]t|pmp|achat)/i}
+    {k:"ean", lbl:"Code-barres (EAN)", req:true, re:/(ean|gtin|code.?barre|codebarre|barcode|upc|gencod|\bcab\b|\bcb\b|code ?ean|ean ?13)/i},
+    {k:"name", lbl:"Désignation", re:/(d[ée]signation|designation|libell[ée]|intitul[ée]|\bnom\b|produit|description)/i},
+    {k:"ref", lbl:"Référence", re:/(r[ée]f|reference|sku|code ?article|code ?produit|code ?interne|ref.?interne|\bmpn\b)/i},
+    {k:"qty", lbl:"Stock théorique", req:true, re:/(stock|\bstk\b|qt[ée]|\bqte\b|quantit[ée]|th[ée]orique|disponible|dispo|en stock|restant|nombre)/i},
+    {k:"cost", lbl:"Prix d’achat HT", re:/(prix ?d.?achat|prix ?achat|px ?achat|pa ?ht|paht|\bpa\b|p\.a|co[uû]t|cout|pmp|cump|achat)/i}
   ];
+  /* Détection d'une colonne par le contenu, quand l'en-tête ne dit rien */
+  function detectByValues(data, used, kind){
+    let bestC = -1, bestScore = 0;
+    const n = header => header; // noop
+    for(let c = 0; c < (data[0] ? data[0].length : 0); c++){
+      if(used.includes(c)) continue;
+      let hit = 0, tot = 0;
+      for(const r of data.slice(0, 120)){
+        const raw = r[c]; if(raw == null || String(raw).trim() === "") continue; tot++;
+        if(kind === "ean"){ const v = String(raw).replace(/\s/g, ""); if(/^\d{8,14}$/.test(v) || /^\d+(\.\d+)?e\+?\d+$/i.test(v)) hit++; }
+        else { const num = parseNum(raw); if(num !== null && Number.isFinite(num) && num === Math.round(num) && num >= 0 && num < 100000) hit++; }
+      }
+      const ratio = tot ? hit / tot : 0;
+      if(ratio >= 0.6 && hit > bestScore){ bestScore = hit; bestC = c; }
+    }
+    return bestC;
+  }
   function parseCsv(txt, FS){
     const rows = []; let row = [], cell = "", q = false;
     for(let i = 0; i < txt.length; i++){
@@ -1295,7 +1312,10 @@ body.control .ctrlbar{display:block}
         const header = rows[hi].map(v => String(v).trim());
         const map = {};
         COLS.forEach(c => { const i = header.findIndex((h, j) => c.re.test(h) && !Object.values(map).includes(j)); if(i >= 0) map[c.k] = i; });
-        mapSheet({file: f.name, header, data: rows.slice(hi + 1), map});
+        const data = rows.slice(hi + 1);
+        if(map.ean === undefined){ const c = detectByValues(data, Object.values(map), "ean"); if(c >= 0) map.ean = c; }
+        if(map.qty === undefined){ const c = detectByValues(data, Object.values(map), "qty"); if(c >= 0) map.qty = c; }
+        mapSheet({file: f.name, header, data, map});
       }catch(e){ beep(false); flash("Fichier illisible : exporte-le en Excel (.xlsx) ou CSV depuis la caisse du client.", "bad"); }
     };
     inp.click();

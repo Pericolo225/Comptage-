@@ -147,7 +147,10 @@ body.control .ctrlbar{display:block}
 .qty.set{border-color:var(--act);background:var(--actSoft)}
 .qty.set .val{color:var(--act)}
 
-.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.pad{display:grid;grid-template-columns:repeat(3,1fr) 1.15fr;gap:8px}
+.pad button.ok{grid-column:4;grid-row:1/span 4;height:auto;background:var(--ok);border-color:transparent;color:#fff;font-family:"Barlow",system-ui,sans-serif;font-size:17px;font-weight:800;letter-spacing:.04em;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
+.pad button.ok .ck{font-size:34px;line-height:1}
+.pad button.ok.idle{background:var(--surface2);color:var(--muted);border-color:var(--line)}
 .pad button{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);height:clamp(44px,6.8vh,58px);
   font-size:28px;font-weight:700;box-shadow:var(--sh-1)}
 .pad button:active{background:var(--surface2);transform:translateY(1px);box-shadow:none}
@@ -342,6 +345,7 @@ body.control .ctrlbar{display:block}
     <button class="num" data-k="4">4</button><button class="num" data-k="5">5</button><button class="num" data-k="6">6</button>
     <button class="num" data-k="7">7</button><button class="num" data-k="8">8</button><button class="num" data-k="9">9</button>
     <button class="fn" data-k="C">Effacer</button><button class="num" data-k="0">0</button><button class="fn" data-k="B" aria-label="Retour arrière">⌫</button>
+    <button class="ok idle" data-k="V" id="padOk"><span class="ck">✓</span>VALIDER</button>
   </div>
   <div class="actions">
     <button id="undoBtn">Annuler le dernier</button>
@@ -517,21 +521,33 @@ body.control .ctrlbar{display:block}
     renderQty();
   }
   /* Dernier article scanné : le pavé modifie sa quantité (scan d’abord, quantité ensuite) */
-  let lastId = null, lastOk = false, editBuf = "";
+  let lastId = null, editBuf = "";
   function lastL(){
     if(lastId === null || state.finished) return null;
     const l = state.lines.find(x => x.id === lastId);
     return l && l.zone === state.zone ? l : null;
   }
-  function checkBig(next){
-    const l = lastL(), big = parseInt(state.bigQty,10) || 50;
-    if(!l || lastOk || l.qty < big) return false;
-    beep(false);
-    openSheet('<h2>Quantité élevée</h2><p class="num" style="font-size:20px;color:var(--ink)">'+esc(l.code)+'</p>'+
-      '<p>Tu as tapé <b class="num" style="font-size:26px;color:var(--ink)">'+l.qty+'</b>. C’est bien la bonne quantité ?</p>'+
-      '<div class="btnrow"><button class="btn" id="bqNo">Corriger</button><button class="btn primary" id="bqOk">Confirmer '+l.qty+'</button></div>');
-    $("bqOk").onclick = () => { lastOk = true; closeSheet(); if(next) next(); };
-    $("bqNo").onclick = () => { closeSheet(); editBuf = ""; l.qty = 1; save(); render(); flash("Retape la quantité de " + l.code + " sur le pavé.", "bad"); };
+  function validateQty(force){
+    const l = lastL();
+    if(!l || editBuf === ""){ flash("Scanne l’article, tape sa quantité, puis ✓ Valider.", ""); return; }
+    const q = parseInt(editBuf,10), big = parseInt(state.bigQty,10) || 50;
+    if(!force && q >= big){
+      beep(false);
+      openSheet('<h2>Quantité élevée</h2><p class="num" style="font-size:20px;color:var(--ink)">'+esc(l.code)+'</p>'+
+        '<p>Tu as tapé <b class="num" style="font-size:26px;color:var(--ink)">'+q+'</b>. C’est bien la bonne quantité ?</p>'+
+        '<div class="btnrow"><button class="btn" id="bqNo">Corriger</button><button class="btn primary" id="bqOk">Confirmer '+q+'</button></div>');
+      $("bqOk").onclick = () => { closeSheet(); validateQty(true); };
+      $("bqNo").onclick = () => { closeSheet(); editBuf = ""; renderQty(); flash("Retape la quantité de " + l.code + ", puis ✓ Valider.", "bad"); };
+      return;
+    }
+    if(q !== l.qty){ logAct("Quantité saisie", l.zone, l.code, l.qty, q); l.qty = q; }
+    editBuf = ""; save(); render(); beep(true);
+    flashHTML((master ? esc(nameOf(l.code).slice(0, 28)) + ' · ' : '') + '<span class="num">'+esc(l.code)+'</span> <span class="fsep">→</span> Quantité <b class="qn">'+q+'</b> ✓', "ok");
+  }
+  /* Une quantité tapée mais pas validée bloque le scan suivant */
+  function blockUnvalidated(){
+    if(editBuf === "" || !lastL()) return false;
+    beep(false); flash("Valide ✓ ou efface d’abord la quantité " + editBuf + " de " + lastL().code + ".", "bad");
     return true;
   }
   function showPending(){
@@ -548,8 +564,10 @@ body.control .ctrlbar{display:block}
     const l = cam.pending ? null : lastL(), set = l ? editBuf !== "" : qtyBuf !== "";
     $("qtyBox").classList.toggle("set", set);
     if(cam.pending){ $("qtyVal").textContent = set ? "× " + qtyBuf : "1"; $("qtyLbl").textContent = "Quantité du code en attente"; }
+    else if(l && set){ $("qtyVal").textContent = "× " + editBuf; $("qtyLbl").textContent = "Quantité tapée : appuie sur ✓ Valider"; }
     else if(l){ $("qtyVal").textContent = "× " + l.qty; $("qtyLbl").textContent = "Quantité du dernier article : tape pour changer"; }
-    else { $("qtyVal").textContent = "1"; $("qtyLbl").textContent = "Scanne l’article, puis tape sa quantité"; }
+    else { editBuf = ""; $("qtyVal").textContent = "1"; $("qtyLbl").textContent = "Scanne l’article, puis tape sa quantité"; }
+    $("padOk").classList.toggle("idle", !(cam.pending || (l && set)));
   }
 
   /* Scanner input */
@@ -619,7 +637,7 @@ body.control .ctrlbar{display:block}
   function handleCode(raw, src, force){
     const code = raw.replace(/\s+/g,"");
     if(state.finished){ missionClosedError(code); return; }
-    if(checkBig(() => handleCode(raw, src, force))) return;
+    if(blockUnvalidated()) return;
     if(zoneRegex().test(code)){ openZone(code.toUpperCase()); return; }
     if(!state.zone){ zoneError(code); return; }
     if(state.check !== false && !eanValid(code)){ codeError(code, src); return; }
@@ -641,7 +659,7 @@ body.control .ctrlbar{display:block}
       return;
     }
     state.lines.push({id: state.seq++, zone: state.zone, code, qty, t: new Date().toISOString(), src: src || "scan", who: state.counter || ""});
-    lastId = state.seq - 1; lastOk = false; editBuf = "";
+    lastId = state.seq - 1; editBuf = "";
     qtyBuf = ""; if(!save()){ state.lines.pop(); state.seq--; render(); return; } render(); beep(true);
     if(master && !itemOf(code)){ flashHTML('<span class="num">'+esc(code)+'</span> <span class="fsep">→</span> inconnu du fichier client <b class="qn">'+qty+'</b>', "bad"); }
     else flashHTML((master ? esc(nameOf(code).slice(0, 28)) + ' · ' : '') + '<span class="num">'+esc(code)+'</span> <span class="fsep">→</span> Quantité <b class="qn">'+qty+'</b>' + (src === "manuel" ? ' <span class="fsrc">saisi</span>' : ''), "ok");
@@ -658,7 +676,7 @@ body.control .ctrlbar{display:block}
   function closeZone(){
     if(cam.pending){ beep(false); flash("Valide ou ignore d’abord le code " + cam.pending + ".", "bad"); return; }
     if(!state.zone){ flash("Aucune zone ouverte.", ""); return; }
-    if(checkBig(closeZone)) return;
+    if(blockUnvalidated()) return;
     const z = state.zone, zl = linesOf(z);
     segClose(z); markClosed(z);
     state.zone = null; qtyBuf = ""; save(); render(); beep(true, "zone");
@@ -759,6 +777,7 @@ body.control .ctrlbar{display:block}
     b.addEventListener("pointerdown", e => e.preventDefault()));
   $("pad").addEventListener("click", e => {
     const k = e.target.closest("button")?.dataset.k; if(!k) return;
+    if(k === "V"){ if(cam.pending) camValidate(); else validateQty(); focusScan(); return; }
     const l = cam.pending ? null : lastL();
     if(!cam.pending && !l){ beep(false); renderQty(); flash("Scanne d’abord l’article, puis tape sa quantité.", "bad"); focusScan(); return; }
     let b = l ? editBuf : qtyBuf;
@@ -767,9 +786,8 @@ body.control .ctrlbar{display:block}
     else if(b.length < 4) b = (b + k).replace(/^0+/, "");
     if(l) editBuf = b; else qtyBuf = b;
     if(l){
-      const q = editBuf === "" ? 1 : parseInt(editBuf,10);
-      if(q !== l.qty){ l.qty = q; lastOk = false; save(); render(); }
-      flashHTML((master ? esc(nameOf(l.code).slice(0, 28)) + ' · ' : '') + '<span class="num">'+esc(l.code)+'</span> <span class="fsep">→</span> Quantité <b class="qn">'+l.qty+'</b>', "ok");
+      if(editBuf === "") flash("Quantité effacée : " + l.code + " reste à " + l.qty + ".", "");
+      else flashHTML('<span class="num">'+esc(l.code)+'</span> <span class="fsep">→</span> Quantité <b class="qn">'+editBuf+'</b> <span class="fsrc">appuie sur ✓ Valider</span>', "");
     }
     renderQty(); focusScan();
   });
@@ -1066,7 +1084,7 @@ body.control .ctrlbar{display:block}
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 42 du 16/11/2026</p>');
+      '<p style="font-size:13px">Version 43 du 16/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -1787,6 +1805,7 @@ body.control .ctrlbar{display:block}
     if(controlMode){ controlScan(code, src); return; }
     if(state.finished){ missionClosedError(code); return; }
     if(cam.pending){ beep(false); flash("Valide ou ignore d’abord le code " + cam.pending + ".", "bad"); return; }
+    if(blockUnvalidated()){ if(src === "camera"){ cam.block = code; cam.misses = 0; } return; }
     if(zoneRegex().test(code) || !state.zone || state.confirm === false){ handleCode(code, src); return; }
     if(state.check !== false && !eanValid(code)){ codeError(code, src); return; }
     /* Quantité 1 (aucune quantité tapée) et article connu : compté tout de suite, sans « Valider » */

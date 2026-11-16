@@ -297,6 +297,15 @@ body.nohold .actions .hold small{display:none}
   .list{min-height:0}
   .tag strong{font-size:24px}
 }
+/* v45 : le pavé numérique prend toute la place disponible */
+.pad{flex:7 1 0;min-height:0;max-height:440px;grid-template-columns:repeat(3,1fr) .5fr;grid-template-rows:repeat(4,minmax(44px,1fr))}
+.pad button{height:auto!important;font-size:30px}
+.pad .fn{font-size:16px}
+.pad button.ok{font-size:13px;letter-spacing:0;padding:0;gap:2px}
+.pad button.ok .ck{font-size:30px}
+.list{flex:1 1 0;min-height:46px}
+body.control .list{flex:1 1 0}
+@media (max-height:800px){ .appbar{display:none} }
 </style>
 </head>
 <body>
@@ -350,7 +359,7 @@ body.nohold .actions .hold small{display:none}
     <button class="num" data-k="4">4</button><button class="num" data-k="5">5</button><button class="num" data-k="6">6</button>
     <button class="num" data-k="7">7</button><button class="num" data-k="8">8</button><button class="num" data-k="9">9</button>
     <button class="fn" data-k="C">Effacer</button><button class="num" data-k="0">0</button><button class="fn" data-k="B" aria-label="Retour arrière">⌫</button>
-    <button class="ok idle" data-k="V" id="padOk"><span class="ck">✓</span>VALIDER</button>
+    <button class="ok idle" data-k="V" id="padOk"><span class="ck">✓</span>OK</button>
   </div>
   <div class="actions">
     <button id="undoBtn">Annuler le dernier<small>appui long</small></button>
@@ -1130,7 +1139,7 @@ body.nohold .actions .hold small{display:none}
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 44 du 16/11/2026</p>');
+      '<p style="font-size:13px">Version 45 du 16/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

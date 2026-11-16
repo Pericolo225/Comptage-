@@ -110,6 +110,10 @@ body.control .ctrlbar{display:block}
 .flash.ok{border-color:transparent;color:var(--ok);background:color-mix(in srgb,var(--ok) 11%,var(--surface))}
 .flash.bad{border-color:transparent;color:var(--bad);background:color-mix(in srgb,var(--bad) 11%,var(--surface))}
 .flash.zone{border-color:transparent;background:color-mix(in srgb,var(--tag) 24%,var(--surface))}
+.flash .fsep{opacity:.5;margin:0 3px;font-weight:700}
+.flash .qn{display:inline-block;min-width:1.3em;text-align:center;background:var(--ok);color:#fff;border-radius:8px;padding:1px 10px;margin-left:6px;font-weight:800;font-family:"Barlow Condensed","Arial Narrow",sans-serif;font-size:1.05em}
+.flash.bad .qn{background:var(--bad)}
+.flash .fsrc{font-size:12px;opacity:.65;margin-left:7px;font-weight:600}
 
 .list{flex:1 1 0;min-height:88px;overflow-y:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--sh-2)}
 .list:empty{border:0;background:transparent;box-shadow:none;min-height:0}
@@ -469,6 +473,7 @@ body.control .ctrlbar{display:block}
   }
   function alarmStop(){ if(alarmTimer){ clearInterval(alarmTimer); alarmTimer = null; try{ navigator.vibrate && navigator.vibrate(0); }catch(e){} } }
   function flash(msg, kind){ const f = $("flash"); f.className = "flash " + (kind||""); f.textContent = msg; }
+  function flashHTML(html, kind){ const f = $("flash"); f.className = "flash " + (kind||""); f.innerHTML = html; }
 
   /* Render */
   function render(){
@@ -603,8 +608,8 @@ body.control .ctrlbar{display:block}
     }
     state.lines.push({id: state.seq++, zone: state.zone, code, qty, t: new Date().toISOString(), src: src || "scan", who: state.counter || ""});
     qtyBuf = ""; if(!save()){ state.lines.pop(); state.seq--; render(); return; } render(); beep(true);
-    if(master && !itemOf(code)){ flash(code + " ×" + qty + " : INCONNU du fichier client", "bad"); }
-    else flash((master ? nameOf(code).slice(0, 28) + " · " : "") + code + " ×" + qty + (src === "manuel" ? "   (saisi)" : ""), "ok");
+    if(master && !itemOf(code)){ flashHTML('<span class="num">'+esc(code)+'</span> <span class="fsep">→</span> inconnu du fichier client <b class="qn">'+qty+'</b>', "bad"); }
+    else flashHTML((master ? esc(nameOf(code).slice(0, 28)) + ' · ' : '') + '<span class="num">'+esc(code)+'</span> <span class="fsep">→</span> Quantité <b class="qn">'+qty+'</b>' + (src === "manuel" ? ' <span class="fsrc">saisi</span>' : ''), "ok");
   }
   function zoneError(code){
     if(cam.on){ cam.block = code; cam.misses = 0; }
@@ -988,7 +993,7 @@ body.control .ctrlbar{display:block}
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 33 du 16/11/2026</p>');
+      '<p style="font-size:13px">Version 34 du 16/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

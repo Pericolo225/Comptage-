@@ -656,8 +656,10 @@ body.control .ctrlbar{display:block}
       '<p>La zone en cours sera fermée et les scans bloqués. La mission reste affichée : tu pourras l’exporter, consulter les zones et les écarts, ou la rouvrir si besoin.</p>'+
       (exp ? '<div class="expst ok">Mission exportée.</div>' : '<div class="expst no">Pas encore exportée depuis la dernière modification.</div>')+
       '<div class="btnrow"><button class="btn" id="fmNo">Annuler</button><button class="btn primary" id="fmOk">Clôturer'+(exp ? '' : ' et exporter')+'</button></div>');
-    $("fmNo").onclick = closeSheet;
+    alarmStart("once");
+    $("fmNo").onclick = () => { alarmStop(); closeSheet(); };
     $("fmOk").onclick = () => {
+      alarmStop();
       if(state.zone){ segClose(state.zone); if(linesOf(state.zone).length) markClosed(state.zone); state.zone = null; }
       state.finished = new Date().toISOString();
       logAct("Clôture de la mission", "", "", sum(state.lines), "");
@@ -993,7 +995,7 @@ body.control .ctrlbar{display:block}
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 35 du 16/11/2026</p>');
+      '<p style="font-size:13px">Version 36 du 16/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

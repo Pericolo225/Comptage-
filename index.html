@@ -297,6 +297,19 @@ body.nohold .actions .hold small{display:none}
   .list{min-height:0}
   .tag strong{font-size:24px}
 }
+/* Log on / log off de l'inventoriste */
+.logon{position:fixed;inset:0;z-index:60;display:none;flex-direction:column;justify-content:center;gap:14px;padding:22px;background:linear-gradient(160deg,#141c2b,#1f2a3f);color:#fff;overflow-y:auto}
+.logon.on{display:flex}
+.logon .lmark{width:58px;height:58px;border-radius:16px;background:var(--tag);display:grid;place-items:center;font-family:"Barlow Condensed","Arial Narrow",sans-serif;font-weight:800;font-size:30px;color:#141c2b;letter-spacing:-.04em}
+.logon h1{margin:0;font-family:"Barlow Condensed","Arial Narrow",sans-serif;font-size:34px;line-height:1;letter-spacing:.02em}
+.logon p{margin:0;color:#b7c0d1;font-size:15px}
+.logon label{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:700;letter-spacing:.08em;color:#b7c0d1}
+.logon input{font:inherit;font-size:22px;font-weight:600;letter-spacing:0;padding:13px 14px;border-radius:12px;border:2px solid #3a4763;background:#0f1522;color:#fff}
+.logon input:focus{outline:none;border-color:var(--tag)}
+.logon .lgo{margin-top:6px;padding:16px;border:0;border-radius:14px;background:var(--tag);color:#141c2b;font-family:"Barlow Condensed","Arial Narrow",sans-serif;font-size:24px;font-weight:800;letter-spacing:.06em}
+.logon .lmeta{font-size:13px;color:#8692a8}
+.logon .lerr{color:#ff8a8a;font-size:14px;min-height:18px}
+.btn.logoff{background:#141c2b;color:#fff;border-color:#141c2b}
 /* v45 : le pavé numérique prend toute la place disponible */
 .pad{flex:7 1 0;min-height:0;max-height:440px;grid-template-columns:repeat(3,1fr) .5fr;grid-template-rows:repeat(4,minmax(44px,1fr))}
 .pad button{height:auto!important;font-size:30px}
@@ -370,6 +383,16 @@ body.control .list{flex:1 1 0}
 
 <input id="scan" inputmode="none" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Entrée scanner">
 
+<div class="logon" id="logon" role="dialog" aria-modal="true">
+  <div class="lmark">III</div>
+  <h1>LOG ON</h1>
+  <p>Identifie-toi avant de commencer le comptage.</p>
+  <label>NOM DE L’INVENTORISTE<input id="lgName" autocomplete="off" autocapitalize="words" placeholder="Prénom et nom"></label>
+  <label>MATRICULE / BADGE (facultatif)<input id="lgBadge" autocomplete="off" inputmode="text" placeholder="ex. 20297013"></label>
+  <div class="lerr" id="lgErr"></div>
+  <button class="lgo" id="lgGo">COMMENCER</button>
+  <div class="lmeta" id="lgMeta"></div>
+</div>
 <div class="veil" id="veil"><div class="sheet" id="sheet" role="dialog" aria-modal="true"></div></div>
 
 <script>
@@ -825,6 +848,37 @@ body.control .list{flex:1 1 0}
     el.addEventListener("click", () => { if(!holdOn()) action(); });
   }
   holdBtn($("closeZoneBtn"), closeZone, "Fermer la zone");
+  /* ===== Log on / log off ===== */
+  function showLogon(){
+    if(sheetOpen) closeSheet();
+    $("lgName").value = state.counter || ""; $("lgBadge").value = state.badge || ""; $("lgErr").textContent = "";
+    $("lgMeta").textContent = (state.mission ? "Mission : " + state.mission + " · " : "") + (state.lines.length ? fmtLines(state.lines.length) + (state.lines.length > 1 ? " déjà comptées" : " déjà comptée") + " sur ce terminal" : "Aucun comptage sur ce terminal");
+    $("logon").classList.add("on");
+    setTimeout(() => $("lgName").focus(), 50);
+  }
+  function doLogon(){
+    const n = $("lgName").value.trim().replace(/\s+/g, " ");
+    if(n.length < 2){ beep(false); $("lgErr").textContent = "Indique ton nom pour commencer."; $("lgName").focus(); return; }
+    state.counter = n; state.badge = $("lgBadge").value.trim(); state.loggedIn = true; state.sessionStart = new Date().toISOString();
+    logAct("Log on", "", state.badge, "", ""); save(); render();
+    $("logon").classList.remove("on"); beep(true);
+    flash("Bonjour " + n + " : scanne l’étiquette de zone pour commencer.", "zone"); focusScan();
+  }
+  $("lgGo").addEventListener("click", doLogon);
+  ["lgName","lgBadge"].forEach(id => $(id).addEventListener("keydown", e => { e.stopPropagation(); if(e.key === "Enter"){ e.preventDefault(); if(id === "lgName" && !$("lgBadge").value) $("lgBadge").focus(); else doLogon(); } }));
+  function logOffSheet(){
+    if(state.zone){ openSheet('<h2>Zone encore ouverte</h2><p>Ferme d’abord la zone <b class="num">'+esc(state.zone)+'</b> avant le log off.</p><div class="btnrow"><button class="btn primary" id="loK">Compris</button></div>'); $("loK").onclick = closeSheet; return; }
+    const since = state.sessionStart || "", mine = state.lines.filter(l => l.who === state.counter && (!since || l.t >= since));
+    const mins = since ? Math.max(1, Math.round((Date.now() - new Date(since)) / 60000)) : 0, q = sum(mine);
+    const zones = [...new Set(mine.map(l => l.zone))].length;
+    openSheet('<h2>Log off</h2><p>Fin de travail pour <b>'+esc(state.counter || "—")+'</b>'+(state.badge ? ' ('+esc(state.badge)+')' : '')+'.</p>'+
+      '<div class="totals"><span><b class="num">'+q+'</b> articles</span><span><b class="num">'+zones+'</b> zone'+(zones>1?'s':'')+'</span>'+(mins ? '<span><b class="num">'+Math.floor(mins/60)+'h'+String(mins%60).padStart(2,"0")+'</b></span><span><b class="num">'+Math.round(q * 60 / mins)+'</b> PPH</span>' : '')+'</div>'+
+      '<p>Les comptages restent enregistrés sur le terminal. Le prochain inventoriste devra se connecter.</p>'+
+      '<div class="btnrow"><button class="btn" id="loNo">Annuler</button><button class="btn logoff" id="loOk">LOG OFF</button></div>');
+    $("loNo").onclick = closeSheet;
+    $("loOk").onclick = () => { logAct("Log off", "", state.badge || "", q, ""); state.loggedIn = false; save(); closeSheet(); showLogon(); };
+  }
+  if(!state.loggedIn) showLogon();
   /* Écran toujours en portrait normal (jamais retourné à 180°) */
   function lockPortrait(){ try{ screen.orientation && screen.orientation.lock && screen.orientation.lock("portrait-primary").catch(() => {}); }catch(e){} }
   lockPortrait();
@@ -1119,7 +1173,7 @@ body.control .list{flex:1 1 0}
   $("menuBtn").addEventListener("click", () => {
     openSheet('<h2>Mission</h2>'+
       '<div class="totals"><span><b class="num">'+state.zones.length+'</b> zones</span><span><b class="num">'+fmtLines(state.lines.length)+'</b></span><span><b class="num">'+sum(state.lines)+'</b> articles</span><span><b class="num">'+fmtPph(pphMission(state))+'</b> PPH</span></div>'+
-      '<label>Nom du compteur<input id="mw" value="'+esc(state.counter)+'" autocomplete="off" placeholder="Prénom et nom"></label>'+
+      '<div class="btnrow"><span style="flex:1;align-self:center">Connecté : <b>'+esc(state.counter || "—")+'</b>'+(state.badge ? ' · '+esc(state.badge) : '')+'</span><button class="btn logoff" id="xOff">LOG OFF</button></div>'+
       '<label>Nom du client ou de la mission<input id="mn" value="'+esc(state.mission)+'" autocomplete="off"></label>'+
       '<div class="expst '+(isExported() ? 'ok">Mission exportée : rien à perdre' : 'no">Mission pas encore exportée depuis la dernière modification')+'</div>'+
       '<label class="chk"><input id="mhold" type="checkbox"'+(state.hold === false ? '' : ' checked')+'> Appui long pour fermer la zone, annuler et corriger</label>'+
@@ -1139,8 +1193,8 @@ body.control .list{flex:1 1 0}
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 45 du 16/11/2026</p>');
-    const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
+      '<p style="font-size:13px">Version 46 du 17/11/2026</p>');
+    const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
     $("xX").onclick = () => { keep(); exportXlsx().then(ok => { if(ok && sheetOpen) $("menuBtn").click(); }); };
@@ -1149,6 +1203,7 @@ body.control .list{flex:1 1 0}
     $("xTeam").onclick = () => { keep(); teamSheet(); };
     $("xDrive").onclick = () => { keep(); driveSheet(); };
     $("xMaster").onclick = () => { keep(); masterSheet(); };
+    $("xOff").onclick = () => { keep(); logOffSheet(); };
     $("xCtrl").onclick = () => { keep(); closeSheet(); setControl(!controlMode); };
     if(master) $("xEc").onclick = () => { keep(); ecartsSheet("ec"); };
     $("xC").onclick = () => { keep(); exportCsv(); };
@@ -1181,7 +1236,7 @@ body.control .list{flex:1 1 0}
   }
 
   /* Missions: archive instead of delete */
-  function settingsOf(s){ return {prefix:s.prefix, counter:s.counter, confirm:s.confirm, check:s.check, autoBackup:s.autoBackup, bigQty:s.bigQty, hold:s.hold}; }
+  function settingsOf(s){ return {prefix:s.prefix, counter:s.counter, confirm:s.confirm, check:s.check, autoBackup:s.autoBackup, bigQty:s.bigQty, hold:s.hold, loggedIn:s.loggedIn, badge:s.badge, sessionStart:s.sessionStart}; }
   function archiveCurrent(){
     if(!state.lines.length && !(state.log||[]).length) return true;
     const a = loadArch();
@@ -1854,6 +1909,7 @@ body.control .list{flex:1 1 0}
   function receiveScan(raw, src){
     const code = String(raw).replace(/\s+/g, "");
     if(!code || sheetOpen) return;
+    if(!state.loggedIn){ beep(false); showLogon(); return; }
     const now = Date.now();
     if(src === "scan" && code === lastScan.code && now - lastScan.t < 500){ lastScan.t = now; return; }
     lastScan = {code, t: now};

@@ -935,7 +935,17 @@ body.control .ctrlbar{display:block}
     });
   }
   async function driveFolder(token){ let id=null; try{ id=localStorage.getItem("comptage-drive-folder"); }catch(e){}
-    if(id) return id;
+    if(id){ // vérifier que le dossier existe encore et n'est pas à la corbeille
+      try{ const g=await fetch("https://www.googleapis.com/drive/v3/files/"+id+"?fields=id,trashed",{headers:{Authorization:"Bearer "+token}});
+        if(g.ok){ const gj=await g.json(); if(gj && gj.id && !gj.trashed) return id; } else { return id; } }
+      catch(e){ return id; }
+      id=null; try{ localStorage.removeItem("comptage-drive-folder"); }catch(e){} }
+    // réutiliser un dossier existant créé par l'app (évite les doublons entre appareils/sessions)
+    try{
+      const q=encodeURIComponent("mimeType='application/vnd.google-apps.folder' and name='"+DRIVE.folderName+"' and trashed=false");
+      const sr=await fetch("https://www.googleapis.com/drive/v3/files?q="+q+"&fields=files(id)&orderBy=createdTime&pageSize=1",{headers:{Authorization:"Bearer "+token}});
+      if(sr.ok){ const sj=await sr.json(); if(sj.files && sj.files.length){ id=sj.files[0].id; try{ localStorage.setItem("comptage-drive-folder",id); }catch(e){} return id; } }
+    }catch(e){}
     const r=await fetch("https://www.googleapis.com/drive/v3/files?fields=id",{method:"POST",headers:{Authorization:"Bearer "+token,"Content-Type":"application/json"},body:JSON.stringify({name:DRIVE.folderName,mimeType:"application/vnd.google-apps.folder"})});
     if(!r.ok) throw new Error("folder_"+r.status); const j=await r.json(); id=j.id; try{ localStorage.setItem("comptage-drive-folder",id); }catch(e){} return id; }
   async function driveUploadRaw(token,folderId,filename,buf){
@@ -995,7 +1005,7 @@ body.control .ctrlbar{display:block}
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 36 du 16/11/2026</p>');
+      '<p style="font-size:13px">Version 37 du 16/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

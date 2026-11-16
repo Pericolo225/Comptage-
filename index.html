@@ -897,7 +897,7 @@ body.control .ctrlbar{display:block}
     (s.extraSheets || []).forEach(x => { const ws = XLSX.utils.aoa_to_sheet(x.aoa); ws["!cols"] = [{wch:22},{wch:14},{wch:12},{wch:40}]; XLSX.utils.book_append_sheet(wb, ws, x.name); });
     const buf = XLSX.write(wb, {bookType:"xlsx", type:"array"});
     const sig = sigOf(s);
-    if(opt.driveName) driveSave(opt.driveName + ".xlsx", buf, {quiet: !!opt.silent});
+    if(opt.driveName) driveSave(opt.driveName + ".xlsx", buf, {quiet: !!opt.silent, sub: driveSubName(s)});
     if(opt.noLocal) return true;
     const ok = await saveFile(baseName(s) + (opt.suffix||"") + ".xlsx", new Blob([buf]), opt.silent);
     if(ok && s === state){ state.exportedSig = sig; save(); }
@@ -948,6 +948,21 @@ body.control .ctrlbar{display:block}
     }catch(e){}
     const r=await fetch("https://www.googleapis.com/drive/v3/files?fields=id",{method:"POST",headers:{Authorization:"Bearer "+token,"Content-Type":"application/json"},body:JSON.stringify({name:DRIVE.folderName,mimeType:"application/vnd.google-apps.folder"})});
     if(!r.ok) throw new Error("folder_"+r.status); const j=await r.json(); id=j.id; try{ localStorage.setItem("comptage-drive-folder",id); }catch(e){} return id; }
+  function driveSubName(s){ s=s||state; const d=s.startedAt?new Date(s.startedAt):new Date(); const p=n=>String(n).padStart(2,"0"); const ds=d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate()); return (missionSan(s)+" "+ds).slice(0,80); }
+  async function driveSubFolder(token, parentId, subName){
+    let map={}; try{ map=JSON.parse(localStorage.getItem("comptage-drive-subs")||"{}"); }catch(e){ map={}; }
+    let id=map[subName];
+    if(id){
+      try{ const g=await fetch("https://www.googleapis.com/drive/v3/files/"+id+"?fields=id,trashed",{headers:{Authorization:"Bearer "+token}});
+        if(g.ok){ const gj=await g.json(); if(gj&&gj.id&&!gj.trashed) return id; } else { return id; } }catch(e){ return id; }
+      delete map[subName]; try{ localStorage.setItem("comptage-drive-subs",JSON.stringify(map)); }catch(e){} }
+    try{
+      const q=encodeURIComponent("mimeType='application/vnd.google-apps.folder' and name='"+subName.replace(/'/g,"\\'")+"' and '"+parentId+"' in parents and trashed=false");
+      const sr=await fetch("https://www.googleapis.com/drive/v3/files?q="+q+"&fields=files(id)&orderBy=createdTime&pageSize=1",{headers:{Authorization:"Bearer "+token}});
+      if(sr.ok){ const sj=await sr.json(); if(sj.files&&sj.files.length){ id=sj.files[0].id; map[subName]=id; try{localStorage.setItem("comptage-drive-subs",JSON.stringify(map));}catch(e){} return id; } }
+    }catch(e){}
+    const r=await fetch("https://www.googleapis.com/drive/v3/files?fields=id",{method:"POST",headers:{Authorization:"Bearer "+token,"Content-Type":"application/json"},body:JSON.stringify({name:subName,mimeType:"application/vnd.google-apps.folder",parents:[parentId]})});
+    if(!r.ok) throw new Error("subfolder_"+r.status); const j=await r.json(); id=j.id; map[subName]=id; try{localStorage.setItem("comptage-drive-subs",JSON.stringify(map));}catch(e){} return id; }
   async function driveUploadRaw(token,folderId,filename,buf){
     const boundary="comptage"+Date.now();
     const body=new Blob(["--"+boundary+"\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n", JSON.stringify({name:filename,parents:[folderId]})+"\r\n", "--"+boundary+"\r\nContent-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n", new Blob([buf]), "\r\n--"+boundary+"--"]);
@@ -957,22 +972,23 @@ body.control .ctrlbar{display:block}
   function b64ToBuf(b64){ const bin=atob(b64),u=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i); return u; }
   function driveQueueGet(){ try{ return JSON.parse(localStorage.getItem("comptage-drive-queue")||"[]"); }catch(e){ return []; } }
   function driveQueueSet(q){ try{ localStorage.setItem("comptage-drive-queue",JSON.stringify(q.slice(-40))); }catch(e){} }
-  function driveQueuePush(filename,buf){ const q=driveQueueGet(); q.push({name:filename,b64:bufToB64(buf),t:Date.now()}); driveQueueSet(q); }
+  function driveQueuePush(filename,buf,sub){ const q=driveQueueGet(); q.push({name:filename,b64:bufToB64(buf),sub:sub||"",t:Date.now()}); driveQueueSet(q); }
   async function driveFlushQueue(){ if(!driveEnabled()) return; const q=driveQueueGet(); if(!q.length) return;
-    let token,folder; try{ token=await driveToken(false); folder=await driveFolder(token); }catch(e){ return; }
-    const rest=[]; for(const it of q){ try{ await driveUploadRaw(token,folder,it.name,b64ToBuf(it.b64)); }catch(e){ rest.push(it); } }
+    let token,main; try{ token=await driveToken(false); main=await driveFolder(token); }catch(e){ return; }
+    const rest=[]; for(const it of q){ try{ const folder=await driveSubFolder(token, main, it.sub||driveSubName()); await driveUploadRaw(token,folder,it.name,b64ToBuf(it.b64)); }catch(e){ rest.push(it); } }
     driveQueueSet(rest); if(rest.length<q.length) flash((q.length-rest.length)+" fichier(s) en attente envoyé(s) dans Drive.","ok"); }
   async function driveSave(filename,buf,opt){ opt=opt||{}; if(!driveEnabled()) return;
-    try{ const token=await driveToken(opt.interactive===true); const folder=await driveFolder(token); await driveUploadRaw(token,folder,filename,buf);
+    const sub = opt.sub || driveSubName();
+    try{ const token=await driveToken(opt.interactive===true); const main=await driveFolder(token); const folder=await driveSubFolder(token, main, sub); await driveUploadRaw(token,folder,filename,buf);
       flash("Sauvegardé dans Google Drive : "+filename,"ok"); driveFlushQueue(); }
-    catch(e){ driveQueuePush(filename,buf); if(!opt.quiet) flash("Drive indisponible : "+filename+" mis en attente.",""); } }
+    catch(e){ driveQueuePush(filename,buf,sub); if(!opt.quiet) flash("Drive indisponible : "+filename+" mis en attente.",""); } }
   async function driveConnect(){ try{ const token=await driveToken(true); try{ localStorage.setItem("comptage-drive","1"); }catch(e){} await driveFolder(token);
       flash("Google Drive connecté : zones et missions y seront sauvegardées.","ok"); driveFlushQueue(); }
     catch(e){ flash("Connexion Google Drive annulée ou refusée.","bad"); } }
   function driveDisconnect(){ try{ localStorage.removeItem("comptage-drive"); }catch(e){} DRIVE.token=null; DRIVE.exp=0; flash("Google Drive déconnecté : sauvegardes auto arrêtées.",""); }
   function driveSheet(){ const q=driveQueueGet().length;
     openSheet('<h2>Sauvegarde Google Drive</h2>'+
-      '<p>À chaque <b>zone fermée</b> et à la <b>clôture de mission</b>, le fichier Excel part automatiquement dans le dossier « '+DRIVE.folderName+' » de ton Google Drive.</p>'+
+      '<p>À chaque <b>zone fermée</b> et à la <b>clôture de mission</b>, le fichier Excel part automatiquement dans un <b>sous-dossier par mission</b> (ex. « Franprix 2026-11-16 ») à l’intérieur du dossier « '+DRIVE.folderName+' » de ton Google Drive.</p>'+
       (driveEnabled()?'<div class="expst ok">Connecté : sauvegardes automatiques activées.</div>':'<div class="expst no">Non connecté : connecte-toi avec le compte Google de destination.</div>')+
       (q?'<div class="expst no">'+q+' fichier(s) en attente d’envoi.</div>':'')+
       '<div class="btnrow">'+(driveEnabled()?'<button class="btn" id="dDisc">Déconnecter</button><button class="btn primary" id="dFlush">Envoyer les fichiers en attente</button>':'<button class="btn primary" id="dConn">Connecter Google Drive</button>')+'</div>'+
@@ -1005,7 +1021,7 @@ body.control .ctrlbar{display:block}
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 37 du 16/11/2026</p>');
+      '<p style="font-size:13px">Version 38 du 16/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

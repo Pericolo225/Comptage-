@@ -133,6 +133,11 @@ body.control .ctrlbar{display:block}
 .list:empty{border:0;background:transparent;box-shadow:none;min-height:0}
 .row{display:flex;align-items:center;gap:10px;width:100%;padding:11px 14px;border:0;border-bottom:1px solid var(--line);background:none;text-align:left}
 .row:last-child{border-bottom:0}
+.hold{position:relative;overflow:hidden}
+.hold::after{content:"";position:absolute;inset:0;background:color-mix(in srgb,var(--act) 30%,transparent);transform:scaleX(0);transform-origin:left;pointer-events:none}
+.hold.holding::after{transform:scaleX(1);transition:transform .6s linear}
+.actions .hold small{display:block;font-size:10px;font-weight:600;opacity:.6;letter-spacing:.03em}
+body.nohold .actions .hold small{display:none}
 .row .code{flex:1;font-size:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .row .nm{display:block;font-size:13px;color:var(--muted);overflow:hidden;text-overflow:ellipsis}
 .row .nm.unk,.pq .unk{color:var(--bad);font-weight:600}
@@ -348,8 +353,8 @@ body.control .ctrlbar{display:block}
     <button class="ok idle" data-k="V" id="padOk"><span class="ck">✓</span>VALIDER</button>
   </div>
   <div class="actions">
-    <button id="undoBtn">Annuler le dernier</button>
-    <button id="closeZoneBtn">Fermer la zone</button>
+    <button id="undoBtn">Annuler le dernier<small>appui long</small></button>
+    <button id="closeZoneBtn">Fermer la zone<small>appui long</small></button>
     <button id="manualBtn">Code avec lettres</button>
   </div>
 </div>
@@ -517,6 +522,7 @@ body.control .ctrlbar{display:block}
     }
     $("pph").textContent = "PPH " + fmtPph(pphMission(state));
     try{ renderTeam(); }catch(e){}
+    document.body.classList.toggle("nohold", state.hold === false);
     $("who").textContent = state.counter ? "Compteur : " + state.counter : "Compteur : à renseigner dans Menu";
     renderQty();
   }
@@ -564,9 +570,9 @@ body.control .ctrlbar{display:block}
     const l = cam.pending ? null : lastL(), set = l ? editBuf !== "" : qtyBuf !== "";
     $("qtyBox").classList.toggle("set", set);
     if(cam.pending){ $("qtyVal").textContent = set ? "× " + qtyBuf : "1"; $("qtyLbl").textContent = "Quantité du code en attente"; }
-    else if(l && set){ $("qtyVal").textContent = "× " + editBuf; $("qtyLbl").textContent = "Quantité tapée : appuie sur ✓ Valider"; }
-    else if(l){ $("qtyVal").textContent = "× " + l.qty; $("qtyLbl").textContent = "Quantité du dernier article : tape pour changer"; }
-    else { editBuf = ""; $("qtyVal").textContent = "1"; $("qtyLbl").textContent = "Scanne l’article, puis tape sa quantité"; }
+    else if(l && set){ $("qtyVal").textContent = "× " + editBuf; $("qtyLbl").textContent = "Appuie sur ✓ Valider"; }
+    else if(l){ $("qtyVal").textContent = "× " + l.qty; $("qtyLbl").textContent = "Tape pour changer la quantité"; }
+    else { editBuf = ""; $("qtyVal").textContent = "1"; $("qtyLbl").textContent = "Scanne, puis tape la quantité"; }
     $("padOk").classList.toggle("idle", !(cam.pending || (l && set)));
   }
 
@@ -689,6 +695,7 @@ body.control .ctrlbar{display:block}
       }
     }
   }
+  function lastClosed(){ const c = (state.closed || []).filter(z => z !== state.zone); return state.finished ? "" : (c[c.length - 1] || ""); }
   function markClosed(z){ state.closed = state.closed || []; if(z && !state.closed.includes(z)) state.closed.push(z); }
   function missionClosedError(code){
     if(cam.on){ cam.block = code; cam.misses = 0; }
@@ -791,17 +798,53 @@ body.control .ctrlbar{display:block}
     }
     renderQty(); focusScan();
   });
-  $("closeZoneBtn").addEventListener("click", closeZone);
+  /* Appui long (comme RGIS Rising) : évite les fermetures / annulations accidentelles */
+  const HOLD_MS = 600;
+  function holdOn(){ return state.hold !== false; }
+  function holdBtn(el, action, label){
+    let t = null, done = false;
+    el.classList.add("hold");
+    const stop = hint => { if(t){ clearTimeout(t); t = null; el.classList.remove("holding"); if(hint) flash("Appui long pour « " + label + " ».", ""); } };
+    el.addEventListener("pointerdown", () => {
+      done = false; if(!holdOn()) return;
+      el.classList.add("holding");
+      t = setTimeout(() => { t = null; done = true; el.classList.remove("holding"); try{ navigator.vibrate && navigator.vibrate(40); }catch(e){} action(); }, HOLD_MS);
+    });
+    el.addEventListener("pointerup", () => stop(true));
+    el.addEventListener("pointerleave", () => stop(false));
+    el.addEventListener("pointercancel", () => stop(false));
+    el.addEventListener("click", () => { if(!holdOn()) action(); });
+  }
+  holdBtn($("closeZoneBtn"), closeZone, "Fermer la zone");
+  /* Écran toujours en portrait normal (jamais retourné à 180°) */
+  function lockPortrait(){ try{ screen.orientation && screen.orientation.lock && screen.orientation.lock("portrait-primary").catch(() => {}); }catch(e){} }
+  lockPortrait();
+  document.addEventListener("fullscreenchange", lockPortrait);
+  document.addEventListener("visibilitychange", () => { if(!document.hidden) lockPortrait(); });
   $("team").addEventListener("click", () => teamSheet());
   $("pph").addEventListener("click", () => prodSheet());
-  $("undoBtn").addEventListener("click", () => {
+  holdBtn($("undoBtn"), () => {
     if(!state.zone){ return; }
     const zl = linesOf(state.zone); const last = zl[zl.length-1];
     if(!last){ flash("Rien à annuler dans cette zone.", ""); return; }
     state.lines = state.lines.filter(l => l.id !== last.id); logAct("Annulation du dernier scan", last.zone, last.code, last.qty, 0); save(); render();
     flash("Annulé : " + last.code + " (" + last.qty + ")", "");
-  });
-  $("list").addEventListener("click", e => { const r = e.target.closest(".row"); if(r) editLine(+r.dataset.id); });
+  }, "Annuler le dernier");
+  (() => {
+    let t = null, x0 = 0, y0 = 0, row = null;
+    const stop = () => { if(t){ clearTimeout(t); t = null; } if(row){ row.classList.remove("holding"); row = null; } };
+    $("list").addEventListener("pointerdown", e => {
+      const r = e.target.closest(".row"); if(!r) return;
+      if(!holdOn()){ return; }
+      row = r; r.classList.add("hold","holding"); x0 = e.clientX; y0 = e.clientY;
+      t = setTimeout(() => { const id = +r.dataset.id; stop(); try{ navigator.vibrate && navigator.vibrate(40); }catch(e){} editLine(id); }, HOLD_MS);
+    });
+    $("list").addEventListener("pointermove", e => { if(t && (Math.abs(e.clientX - x0) > 10 || Math.abs(e.clientY - y0) > 10)) stop(); });
+    $("list").addEventListener("pointerup", () => { if(t){ stop(); flash("Appui long sur une ligne pour la corriger.", ""); } });
+    $("list").addEventListener("pointercancel", stop);
+    $("list").addEventListener("pointerleave", stop);
+    $("list").addEventListener("click", e => { const r = e.target.closest(".row"); if(r && !holdOn()) editLine(+r.dataset.id); });
+  })();
 
   /* Sheets */
   function openSheet(html){ sheetOpen = true; $("sheet").innerHTML = html; $("veil").classList.add("open"); updateStatus(); }
@@ -878,10 +921,12 @@ body.control .ctrlbar{display:block}
         '<div class="zbtns"><button class="btn" data-view="'+esc(z)+'">Voir les articles</button><button class="btn" data-open="'+esc(z)+'">Ouvrir</button><button class="btn danger" data-reset="'+esc(z)+'">Recompter</button></div></div>';
     }).join("");
     openSheet('<h2>Zones</h2><div class="totals"><span><b class="num">'+state.zones.length+'</b> zones</span><span><b class="num">'+sum(state.lines)+'</b> articles</span></div>'+
+      (lastClosed() ? '<div class="btnrow"><button class="btn" id="zLast">↺ Rouvrir la dernière zone fermée : <b class="num">'+esc(lastClosed())+'</b></button></div>' : '')+
       (items ? '<div class="zlist">'+items+'</div>' : '<p>Aucune zone pour l’instant. Scanne une étiquette ou crée une zone ici.</p>')+
       '<label>Ouvrir ou créer une zone<input id="nz" class="num" autocomplete="off" placeholder="'+esc((state.prefix||"Z")+"001")+'"></label>'+
       '<div class="btnrow"><button class="btn" id="zNo">Fermer</button><button class="btn primary" id="zOk">Ouvrir cette zone</button></div>');
     $("zNo").onclick = closeSheet;
+    if($("zLast")) $("zLast").onclick = () => { const z = lastClosed(); closeSheet(); logAct("Réouverture de la dernière zone fermée", z, "", sum(linesOf(z)), ""); openZone(z, true); };
     $("zOk").onclick = () => {
       let v = $("nz").value.trim().toUpperCase(); if(!v) return;
       if(/^\d+$/.test(v)) v = (state.prefix||"Z").toUpperCase() + v.padStart(3,"0");
@@ -1068,6 +1113,7 @@ body.control .ctrlbar{display:block}
       '<label>Nom du compteur<input id="mw" value="'+esc(state.counter)+'" autocomplete="off" placeholder="Prénom et nom"></label>'+
       '<label>Nom du client ou de la mission<input id="mn" value="'+esc(state.mission)+'" autocomplete="off"></label>'+
       '<div class="expst '+(isExported() ? 'ok">Mission exportée : rien à perdre' : 'no">Mission pas encore exportée depuis la dernière modification')+'</div>'+
+      '<label class="chk"><input id="mhold" type="checkbox"'+(state.hold === false ? '' : ' checked')+'> Appui long pour fermer la zone, annuler et corriger</label>'+
       '<label class="chk"><input id="mv" type="checkbox"'+(state.confirm === false ? '' : ' checked')+'> Faire valider les codes inconnus du fichier client</label>'+
       '<label class="chk"><input id="mck" type="checkbox"'+(state.check === false ? '' : ' checked')+'> Refuser les codes EAN invalides (mal lus ou mal tapés)</label>'+
       '<label class="chk"><input id="mab" type="checkbox"'+(state.autoBackup === false ? '' : ' checked')+'> Sauvegarde Excel automatique à chaque fermeture de zone</label>'+
@@ -1084,8 +1130,8 @@ body.control .ctrlbar{display:block}
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 43 du 16/11/2026</p>');
-    const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
+      '<p style="font-size:13px">Version 44 du 16/11/2026</p>');
+    const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
     $("xX").onclick = () => { keep(); exportXlsx().then(ok => { if(ok && sheetOpen) $("menuBtn").click(); }); };
@@ -1126,7 +1172,7 @@ body.control .ctrlbar{display:block}
   }
 
   /* Missions: archive instead of delete */
-  function settingsOf(s){ return {prefix:s.prefix, counter:s.counter, confirm:s.confirm, check:s.check, autoBackup:s.autoBackup, bigQty:s.bigQty}; }
+  function settingsOf(s){ return {prefix:s.prefix, counter:s.counter, confirm:s.confirm, check:s.check, autoBackup:s.autoBackup, bigQty:s.bigQty, hold:s.hold}; }
   function archiveCurrent(){
     if(!state.lines.length && !(state.log||[]).length) return true;
     const a = loadArch();

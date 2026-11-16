@@ -516,6 +516,24 @@ body.control .ctrlbar{display:block}
     $("who").textContent = state.counter ? "Compteur : " + state.counter : "Compteur : à renseigner dans Menu";
     renderQty();
   }
+  /* Dernier article scanné : le pavé modifie sa quantité (scan d’abord, quantité ensuite) */
+  let lastId = null, lastOk = false, editBuf = "";
+  function lastL(){
+    if(lastId === null || state.finished) return null;
+    const l = state.lines.find(x => x.id === lastId);
+    return l && l.zone === state.zone ? l : null;
+  }
+  function checkBig(next){
+    const l = lastL(), big = parseInt(state.bigQty,10) || 50;
+    if(!l || lastOk || l.qty < big) return false;
+    beep(false);
+    openSheet('<h2>Quantité élevée</h2><p class="num" style="font-size:20px;color:var(--ink)">'+esc(l.code)+'</p>'+
+      '<p>Tu as tapé <b class="num" style="font-size:26px;color:var(--ink)">'+l.qty+'</b>. C’est bien la bonne quantité ?</p>'+
+      '<div class="btnrow"><button class="btn" id="bqNo">Corriger</button><button class="btn primary" id="bqOk">Confirmer '+l.qty+'</button></div>');
+    $("bqOk").onclick = () => { lastOk = true; closeSheet(); if(next) next(); };
+    $("bqNo").onclick = () => { closeSheet(); editBuf = ""; l.qty = 1; save(); render(); flash("Retape la quantité de " + l.code + " sur le pavé.", "bad"); };
+    return true;
+  }
   function showPending(){
     $("cam").classList.toggle("has-pending", !!cam.pending);
     $("pend").classList.toggle("on", !!cam.pending);
@@ -527,10 +545,11 @@ body.control .ctrlbar{display:block}
   }
   function renderQty(){
     try{ showPending(); }catch(e){}
-    const set = qtyBuf !== "";
+    const l = cam.pending ? null : lastL(), set = l ? editBuf !== "" : qtyBuf !== "";
     $("qtyBox").classList.toggle("set", set);
-    $("qtyVal").textContent = set ? "× " + qtyBuf : "1";
-    $("qtyLbl").textContent = set ? "Quantité du prochain scan" : "Scan simple : compte 1";
+    if(cam.pending){ $("qtyVal").textContent = set ? "× " + qtyBuf : "1"; $("qtyLbl").textContent = "Quantité du code en attente"; }
+    else if(l){ $("qtyVal").textContent = "× " + l.qty; $("qtyLbl").textContent = "Quantité du dernier article : tape pour changer"; }
+    else { $("qtyVal").textContent = "1"; $("qtyLbl").textContent = "Scanne l’article, puis tape sa quantité"; }
   }
 
   /* Scanner input */
@@ -600,6 +619,7 @@ body.control .ctrlbar{display:block}
   function handleCode(raw, src, force){
     const code = raw.replace(/\s+/g,"");
     if(state.finished){ missionClosedError(code); return; }
+    if(checkBig(() => handleCode(raw, src, force))) return;
     if(zoneRegex().test(code)){ openZone(code.toUpperCase()); return; }
     if(!state.zone){ zoneError(code); return; }
     if(state.check !== false && !eanValid(code)){ codeError(code, src); return; }
@@ -621,6 +641,7 @@ body.control .ctrlbar{display:block}
       return;
     }
     state.lines.push({id: state.seq++, zone: state.zone, code, qty, t: new Date().toISOString(), src: src || "scan", who: state.counter || ""});
+    lastId = state.seq - 1; lastOk = false; editBuf = "";
     qtyBuf = ""; if(!save()){ state.lines.pop(); state.seq--; render(); return; } render(); beep(true);
     if(master && !itemOf(code)){ flashHTML('<span class="num">'+esc(code)+'</span> <span class="fsep">→</span> inconnu du fichier client <b class="qn">'+qty+'</b>', "bad"); }
     else flashHTML((master ? esc(nameOf(code).slice(0, 28)) + ' · ' : '') + '<span class="num">'+esc(code)+'</span> <span class="fsep">→</span> Quantité <b class="qn">'+qty+'</b>' + (src === "manuel" ? ' <span class="fsrc">saisi</span>' : ''), "ok");
@@ -637,6 +658,7 @@ body.control .ctrlbar{display:block}
   function closeZone(){
     if(cam.pending){ beep(false); flash("Valide ou ignore d’abord le code " + cam.pending + ".", "bad"); return; }
     if(!state.zone){ flash("Aucune zone ouverte.", ""); return; }
+    if(checkBig(closeZone)) return;
     const z = state.zone, zl = linesOf(z);
     segClose(z); markClosed(z);
     state.zone = null; qtyBuf = ""; save(); render(); beep(true, "zone");
@@ -737,9 +759,18 @@ body.control .ctrlbar{display:block}
     b.addEventListener("pointerdown", e => e.preventDefault()));
   $("pad").addEventListener("click", e => {
     const k = e.target.closest("button")?.dataset.k; if(!k) return;
-    if(k === "C") qtyBuf = "";
-    else if(k === "B") qtyBuf = qtyBuf.slice(0,-1);
-    else if(qtyBuf.length < 4) qtyBuf = (qtyBuf + k).replace(/^0+/, "");
+    const l = cam.pending ? null : lastL();
+    if(!cam.pending && !l){ beep(false); renderQty(); flash("Scanne d’abord l’article, puis tape sa quantité.", "bad"); focusScan(); return; }
+    let b = l ? editBuf : qtyBuf;
+    if(k === "C") b = "";
+    else if(k === "B") b = b.slice(0,-1);
+    else if(b.length < 4) b = (b + k).replace(/^0+/, "");
+    if(l) editBuf = b; else qtyBuf = b;
+    if(l){
+      const q = editBuf === "" ? 1 : parseInt(editBuf,10);
+      if(q !== l.qty){ l.qty = q; lastOk = false; save(); render(); }
+      flashHTML((master ? esc(nameOf(l.code).slice(0, 28)) + ' · ' : '') + '<span class="num">'+esc(l.code)+'</span> <span class="fsep">→</span> Quantité <b class="qn">'+l.qty+'</b>', "ok");
+    }
     renderQty(); focusScan();
   });
   $("closeZoneBtn").addEventListener("click", closeZone);
@@ -1019,7 +1050,7 @@ body.control .ctrlbar{display:block}
       '<label>Nom du compteur<input id="mw" value="'+esc(state.counter)+'" autocomplete="off" placeholder="Prénom et nom"></label>'+
       '<label>Nom du client ou de la mission<input id="mn" value="'+esc(state.mission)+'" autocomplete="off"></label>'+
       '<div class="expst '+(isExported() ? 'ok">Mission exportée : rien à perdre' : 'no">Mission pas encore exportée depuis la dernière modification')+'</div>'+
-      '<label class="chk"><input id="mv" type="checkbox"'+(state.confirm === false ? '' : ' checked')+'> Valider les scans avec quantité (les articles à 1 sont comptés directement)</label>'+
+      '<label class="chk"><input id="mv" type="checkbox"'+(state.confirm === false ? '' : ' checked')+'> Faire valider les codes inconnus du fichier client</label>'+
       '<label class="chk"><input id="mck" type="checkbox"'+(state.check === false ? '' : ' checked')+'> Refuser les codes EAN invalides (mal lus ou mal tapés)</label>'+
       '<label class="chk"><input id="mab" type="checkbox"'+(state.autoBackup === false ? '' : ' checked')+'> Sauvegarde Excel automatique à chaque fermeture de zone</label>'+
       '<label>Demander confirmation à partir de la quantité<input id="mbq" type="number" inputmode="numeric" min="2" value="'+(parseInt(state.bigQty,10)||50)+'"></label>'+
@@ -1035,7 +1066,7 @@ body.control .ctrlbar{display:block}
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 41 du 16/11/2026</p>');
+      '<p style="font-size:13px">Version 42 du 16/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

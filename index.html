@@ -603,8 +603,8 @@ body.control .ctrlbar{display:block}
     }
     state.lines.push({id: state.seq++, zone: state.zone, code, qty, t: new Date().toISOString(), src: src || "scan", who: state.counter || ""});
     qtyBuf = ""; if(!save()){ state.lines.pop(); state.seq--; render(); return; } render(); beep(true);
-    if(master && !itemOf(code)){ flash("+" + qty + "   " + code + " : INCONNU du fichier client", "bad"); }
-    else flash("+" + qty + "   " + (master ? nameOf(code).slice(0, 28) + " · " : "") + code + (src === "manuel" ? "   (saisi)" : ""), "ok");
+    if(master && !itemOf(code)){ flash(code + " ×" + qty + " : INCONNU du fichier client", "bad"); }
+    else flash((master ? nameOf(code).slice(0, 28) + " · " : "") + code + " ×" + qty + (src === "manuel" ? "   (saisi)" : ""), "ok");
   }
   function zoneError(code){
     if(cam.on){ cam.block = code; cam.misses = 0; }
@@ -988,7 +988,7 @@ body.control .ctrlbar{display:block}
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 32 du 16/11/2026</p>');
+      '<p style="font-size:13px">Version 33 du 16/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

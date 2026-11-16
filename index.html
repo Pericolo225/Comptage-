@@ -114,6 +114,20 @@ body.control .ctrlbar{display:block}
 .flash .qn{display:inline-block;min-width:1.3em;text-align:center;background:var(--ok);color:#fff;border-radius:8px;padding:1px 10px;margin-left:6px;font-weight:800;font-family:"Barlow Condensed","Arial Narrow",sans-serif;font-size:1.05em}
 .flash.bad .qn{background:var(--bad)}
 .flash .fsrc{font-size:12px;opacity:.65;margin-left:7px;font-weight:600}
+/* Résultat de vérification (mode contrôle) */
+.flash.vres{padding:8px 10px;gap:10px;flex-wrap:wrap;color:var(--ink)}
+.vres .vico{flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:800;font-size:17px;background:var(--ok)}
+.vres.bad .vico{background:var(--bad)}
+.vres .vtxt{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.15}
+.vres .vlab{font-family:"Barlow Condensed","Arial Narrow",sans-serif;font-weight:700;font-size:17px;letter-spacing:.06em;color:var(--ok)}
+.vres.bad .vlab{color:var(--bad)}
+.vres .vnm{font-size:13px;font-weight:500;opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vres .vchips{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
+.vres .vchip{display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:64px;padding:3px 10px;border-radius:10px;background:var(--surface);border:1px solid var(--line)}
+.vres .vchip small{font-size:10px;font-weight:700;letter-spacing:.08em;opacity:.65}
+.vres .vchip b{font-family:"Barlow Condensed","Arial Narrow",sans-serif;font-size:22px;font-weight:700;line-height:1}
+.vres .vchip.q{background:var(--ok);border-color:transparent;color:#fff}
+.vres .vchip.q small{opacity:.85}
 
 .list{flex:1 1 0;min-height:88px;overflow-y:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--sh-2)}
 .list:empty{border:0;background:transparent;box-shadow:none;min-height:0}
@@ -1021,7 +1035,7 @@ body.control .ctrlbar{display:block}
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 39 du 16/11/2026</p>');
+      '<p style="font-size:13px">Version 40 du 16/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.counter = $("mw").value.trim(); state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -1777,9 +1791,9 @@ body.control .ctrlbar{display:block}
     const nm = master ? (nameOf(code) || "Inconnu du fichier client") : "";
     if(hits.length){
       const q = hits.reduce((a, l) => a + l.qty, 0), zones = [...new Set(hits.map(l => l.zone))].sort().join(" ");
-      beep(true); flash("✓ Scanné : " + (nm ? nm + " · " : "") + "qté " + q + " (zone " + zones + ")", "ok");
+      beep(true); flashHTML('<span class="vico">✓</span><span class="vtxt"><span class="vlab">SCANNÉ</span>' + (nm ? '<span class="vnm">' + esc(nm) + '</span>' : '') + '</span><span class="vchips"><span class="vchip q"><small>QUANTITÉ</small><b>' + q + '</b></span><span class="vchip"><small>ZONE' + (zones.includes(" ") ? "S" : "") + '</small><b>' + esc(zones) + '</b></span></span>', "ok vres");
     } else {
-      beep(false); flash("✗ Article NON scanné" + (nm ? " : " + nm : "") + " · " + code, "bad");
+      beep(false); flashHTML('<span class="vico">✗</span><span class="vtxt"><span class="vlab">NON SCANNÉ</span><span class="vnm">' + (nm ? esc(nm) + ' · ' : '') + esc(code) + '</span></span>', "bad vres");
     }
   }
   function camValidate(){

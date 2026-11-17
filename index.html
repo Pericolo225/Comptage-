@@ -503,7 +503,9 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
 .sheet.sm label.mfield{font-weight:400!important;margin:0}
 .logon label[hidden]{display:none!important}
 #report{display:none}
-@media print{ body > *:not(#report){display:none!important} #report{display:block!important} body{background:#fff!important} @page{size:A4;margin:12mm} }
+@media print{ body > *:not(#report){display:none!important} #report{display:block!important} body{background:#fff!important} }
+.sheet textarea{font:inherit;font-size:16px;padding:10px;border:1px solid var(--line);border-radius:2px;background:var(--surface);color:var(--ink);resize:vertical}
+.sheet details label{margin-top:8px}
 </style>
 </head>
 <body>
@@ -1149,53 +1151,138 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
       location.reload();
     };
   }
-  /* ===== Rapport client (PDF via impression) ===== */
-  function reportHTML(){
-    const L = state.lines, zs = [...new Set(L.map(l => l.zone))].sort(), who = [...new Set(L.map(l => l.who).filter(Boolean))];
-    const t0 = L.length ? new Date(Math.min(...L.map(l => Date.parse(l.t)))) : null, t1 = L.length ? new Date(Math.max(...L.map(l => Date.parse(l.t)))) : null;
-    const d = x => x ? x.toLocaleDateString("fr-FR", {day:"2-digit", month:"long", year:"numeric"}) : "—", h = x => x ? x.toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"}) : "—";
-    const refs = new Set(L.map(l => normCode(l.code))).size, tot = sum(L);
-    const num = n => Number(n).toLocaleString("fr-FR");
-    let ec = null; if(master){ try{ ec = computeEcarts(L); }catch(e){} }
-    const zrows = zs.map(z => { const zl = L.filter(l => l.zone === z), w = [...new Set(zl.map(l => l.who).filter(Boolean))].join(", "), te = new Date(Math.max(...zl.map(l => Date.parse(l.t))));
-      return '<tr><td>'+esc(z)+'</td><td class="r">'+num(zl.length)+'</td><td class="r">'+num(sum(zl))+'</td><td>'+esc(w || "—")+'</td><td>'+h(te)+'</td></tr>'; }).join("");
-    let ecHtml = "";
-    if(ec){
-      const T = ec.tot, rows = ec.rows.filter(r => r.ec).sort((a,b) => (Math.abs(b.vec || 0) - Math.abs(a.vec || 0)) || (Math.abs(b.ec) - Math.abs(a.ec)));
-      ecHtml = '<h2>Rapprochement avec le stock théorique</h2><table class="kv"><tr><td>Quantité théorique</td><td class="r">'+num(T.th)+'</td><td>Quantité comptée</td><td class="r">'+num(T.ct)+'</td></tr>'+
-        '<tr><td>Écart en quantité</td><td class="r">'+sgn(T.ct - T.th)+'</td><td>Références en écart</td><td class="r">'+num(T.refsEc)+' ('+num(T.missing)+' en manque, '+num(T.extra)+' en surplus)</td></tr>'+
-        (T.hasCost ? '<tr><td>Valeur théorique HT</td><td class="r">'+fmtEur(T.vth)+'</td><td>Valeur comptée HT</td><td class="r">'+fmtEur(T.vct)+'</td></tr><tr><td><b>Écart de valeur HT</b></td><td class="r"><b>'+fmtEur(T.vct - T.vth)+'</b></td><td>Codes inconnus du fichier</td><td class="r">'+num(T.unknown)+'</td></tr>' : '<tr><td>Codes inconnus du fichier</td><td class="r">'+num(T.unknown)+'</td><td colspan="2">Valorisation : prix d’achat absents du fichier client</td></tr>')+'</table>'+
-        (rows.length ? '<h3>Détail des écarts'+(rows.length > 200 ? ' (200 plus importants sur '+num(rows.length)+')' : '')+'</h3><table><thead><tr><th>Code</th><th>Désignation</th><th class="r">Théo.</th><th class="r">Compté</th><th class="r">Écart</th>'+(T.hasCost ? '<th class="r">Écart HT</th>' : '')+'<th>Zones</th></tr></thead><tbody>'+
-          rows.slice(0, 200).map(r => '<tr><td class="m">'+esc(r.code)+'</td><td>'+esc(r.name || r.ref || "")+'</td><td class="r">'+num(r.th)+'</td><td class="r">'+num(r.ct)+'</td><td class="r '+(r.ec < 0 ? 'neg' : 'pos')+'">'+sgn(r.ec)+'</td>'+(T.hasCost ? '<td class="r">'+(r.vec == null ? '—' : fmtEur(r.vec))+'</td>' : '')+'<td>'+esc(Array.isArray(r.zones) ? r.zones.join(" ") : r.zones || "")+'</td></tr>').join("")+'</tbody></table>' : '<p>Aucun écart : le comptage correspond au stock théorique.</p>');
+  /* ===== Rapport client (PDF via impression) — somme de tous les terminaux ===== */
+  function reportHTML(D){
+    const L = D.lines, LOG = D.log || [], C = state.company || {}, num = n => Number(n).toLocaleString("fr-FR"), pct = x => (Math.round(x * 10) / 10).toLocaleString("fr-FR") + " %";
+    const zs = [...new Set(L.map(l => l.zone))].sort(), tot = sum(L);
+    const ts = L.map(l => Date.parse(l.t)).filter(x => !isNaN(x)), t0 = ts.length ? new Date(Math.min(...ts)) : new Date(), t1 = ts.length ? new Date(Math.max(...ts)) : new Date();
+    const dLong = x => x.toLocaleDateString("fr-FR", {weekday:"long", day:"numeric", month:"long", year:"numeric"}), hm = x => x.toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"});
+    const ref = "INV-" + t0.toISOString().slice(0,10).replace(/-/g, "") + "-" + bkCode();
+    /* agrégat par référence */
+    const byRef = new Map();
+    L.forEach(l => { const k = normCode(l.code); const r = byRef.get(k) || {code: l.code, qty: 0, zones: new Set()}; r.qty += l.qty; r.zones.add(l.zone); byRef.set(k, r); });
+    const refs = [...byRef.values()].map(r => { const it = itemOf(r.code); return Object.assign(r, {name: it ? (it.name || it.ref || "") : "", cost: it && it.cost != null ? it.cost : null, known: !!it}); });
+    const hasCost = refs.some(r => r.cost != null), valCt = refs.reduce((a, r) => a + (r.cost != null ? r.cost * r.qty : 0), 0);
+    const ec = master ? computeEcarts(L) : null, T = ec && ec.tot;
+    const rowsEc = ec ? ec.rows.filter(r => !r.unknown) : [], okRefs = rowsEc.filter(r => !r.ec).length, nMiss = rowsEc.filter(r => r.ec < 0).length, nEx = rowsEc.filter(r => r.ec > 0).length, prec = rowsEc.length ? okRefs * 100 / rowsEc.length : null;
+    const corr = LOG.filter(x => /correct|supprim|annul|quantit|modif|recompt/i.test(x.action || "")).length;
+    const kpi = (v, l, cls) => '<div class="k'+(cls ? ' '+cls : '')+'"><b>'+v+'</b><span>'+l+'</span></div>';
+    let h = '<div class="rp">';
+    /* En-tête */
+    h += '<header><div class="pr"><div class="pn">'+esc(C.name || "Prestation d’inventaire physique")+'</div><div class="pd">'+[C.siret ? "SIRET " + esc(C.siret) : "", esc(C.contact || "")].filter(Boolean).join(" · ")+'</div></div>'+
+      '<div class="dt"><div class="dtt">RAPPORT D’INVENTAIRE</div><div class="dtn">N° '+ref+'</div></div></header>';
+    h += '<table class="id"><tr><td>Client</td><td><b>'+esc(state.mission || "—")+'</b></td><td>Date de l’inventaire</td><td>'+dLong(t0)+'</td></tr>'+
+      '<tr><td>Site inventorié</td><td>'+esc(state.site || "—")+'</td><td>Horaires de comptage</td><td>'+hm(t0)+' – '+hm(t1)+' ('+fmtDur(t1 - t0)+')</td></tr>'+
+      '<tr><td>Statut</td><td>'+(state.finished ? 'Inventaire clôturé' : 'Comptage en cours (provisoire)')+'</td><td>Données consolidées</td><td>'+D.devices+' terminal'+(D.devices > 1 ? 'aux' : '')+(D.src === "cache" ? ' (hors ligne : données en cache)' : '')+'</td></tr></table>';
+    /* 1. Synthèse */
+    h += '<h2>1. Synthèse</h2><div class="kpis">'+kpi(num(tot), "articles comptés")+kpi(num(refs.length), "références")+kpi(num(zs.length), "zones")+
+      (hasCost ? kpi(fmtEur(valCt), "valeur comptée HT") : '')+
+      (T ? kpi(sgn(T.ct - T.th), "écart en quantité", T.ct - T.th < 0 ? "neg" : "") + (T.hasCost ? kpi(fmtEur(T.vct - T.vth), "écart de valeur HT", T.vct - T.vth < 0 ? "neg" : "") : '') + (prec != null ? kpi(pct(prec), "fiabilité du stock") : '') : '')+'</div>';
+    if(T) h += '<p class="tx">Sur '+num(rowsEc.length)+' références du stock théorique, '+num(okRefs)+' sont conformes et '+num(nMiss + nEx)+' présentent un écart ('+num(nMiss)+' en manque, '+num(nEx)+' en surplus)'+(T.unknown ? ', et '+num(T.unknown)+' code'+(T.unknown > 1 ? 's' : '')+' scanné'+(T.unknown > 1 ? 's sont' : ' est')+' absent'+(T.unknown > 1 ? 's' : '')+' du fichier article' : '')+'.'+(T.hasCost && T.vth ? ' L’écart de valeur représente '+pct((T.vct - T.vth) * 100 / T.vth)+' de la valeur théorique.' : '')+'</p>';
+    /* 2. Méthodologie */
+    h += '<h2>2. Méthode de comptage</h2><ul class="mt">'+
+      '<li>Le magasin est découpé en <b>'+num(zs.length)+' zones étiquetées</b> ; chaque zone est ouverte, comptée puis fermée par scan de son étiquette, ce qui empêche les doubles comptages.</li>'+
+      '<li>Chaque article est identifié par <b>lecture de son code-barres</b> sur terminal professionnel ; les codes EAN invalides sont refusés et les quantités élevées doivent être confirmées.</li>'+
+      (master ? '<li>Le comptage est réalisé <b>sans connaissance du stock théorique</b> ; le rapprochement n’intervient qu’après comptage.</li>' : '')+
+      '<li>Toute correction est <b>tracée</b> dans un journal horodaté ('+num(corr)+' correction'+(corr > 1 ? 's' : '')+' sur cet inventaire).</li>'+
+      (D.devices > 1 ? '<li>Les comptages de <b>'+D.devices+' terminaux</b> ont été consolidés dans ce rapport.</li>' : '')+'</ul>';
+    /* 3. Rapprochement */
+    let sec = 3;
+    if(T){
+      const top = (arr, n) => arr.slice(0, n).map(r => '<tr><td class="m">'+esc(r.code)+'</td><td>'+esc(r.name || r.ref || "")+'</td><td class="r">'+num(r.th)+'</td><td class="r">'+num(r.ct)+'</td><td class="r '+(r.ec < 0 ? 'neg' : 'pos')+'">'+sgn(r.ec)+'</td>'+(T.hasCost ? '<td class="r">'+(r.vec == null ? '—' : fmtEur(r.vec))+'</td>' : '')+'</tr>').join("");
+      const hd = '<thead><tr><th>Code</th><th>Désignation</th><th class="r">Théorique</th><th class="r">Compté</th><th class="r">Écart</th>'+(T.hasCost ? '<th class="r">Écart HT</th>' : '')+'</tr></thead>';
+      const key = r => T.hasCost ? Math.abs(r.vec || 0) : Math.abs(r.ec);
+      const miss = rowsEc.filter(r => r.ec < 0).sort((a,b) => key(b) - key(a)), extra = rowsEc.filter(r => r.ec > 0).sort((a,b) => key(b) - key(a));
+      h += '<h2>'+sec+'. Rapprochement avec le stock théorique</h2><table class="kv"><tr><td>Quantité théorique</td><td class="r">'+num(T.th)+'</td><td>Quantité comptée</td><td class="r">'+num(T.ct)+'</td></tr>'+
+        (T.hasCost ? '<tr><td>Valeur théorique HT</td><td class="r">'+fmtEur(T.vth)+'</td><td>Valeur comptée HT</td><td class="r">'+fmtEur(T.vct)+'</td></tr>' : '')+
+        '<tr><td>Références conformes</td><td class="r">'+num(okRefs)+'</td><td>Références en écart</td><td class="r">'+num(nMiss + nEx)+'</td></tr></table>';
+      h += '<h3>Principaux manquants'+(miss.length > 20 ? ' (20 sur '+num(miss.length)+')' : '')+'</h3>'+(miss.length ? '<table>'+hd+'<tbody>'+top(miss, 20)+'</tbody></table>' : '<p class="tx">Aucun article manquant.</p>');
+      h += '<h3>Principaux surplus'+(extra.length > 20 ? ' (20 sur '+num(extra.length)+')' : '')+'</h3>'+(extra.length ? '<table>'+hd+'<tbody>'+top(extra, 20)+'</tbody></table>' : '<p class="tx">Aucun article en surplus.</p>');
+      sec++;
     }
-    return '<div class="rp"><header><div><div class="rt">Rapport d’inventaire physique</div><div class="rs">'+esc(state.mission || "Mission sans nom")+'</div></div><div class="rd">'+d(t0)+'<br>'+h(t0)+' – '+h(t1)+'</div></header>'+
-      '<table class="kv"><tr><td>Statut</td><td>'+(state.finished ? 'Mission clôturée le '+new Date(state.finished).toLocaleString("fr-FR") : 'Comptage en cours')+'</td><td>Inventoriste(s)</td><td>'+esc(who.join(", ") || state.counter || "—")+'</td></tr>'+
-      '<tr><td>Zones comptées</td><td class="r">'+num(zs.length)+'</td><td>Lignes de comptage</td><td class="r">'+num(L.length)+'</td></tr>'+
-      '<tr><td>Articles comptés</td><td class="r"><b>'+num(tot)+'</b></td><td>Références distinctes</td><td class="r">'+num(refs)+'</td></tr>'+
-      '<tr><td>Durée du comptage</td><td class="r">'+fmtDur(missionSpan(state))+'</td><td>Cadence (PPH)</td><td class="r">'+fmtPph(pphMission(state))+'</td></tr></table>'+
-      ecHtml+
-      '<h2>Comptage par zone</h2><table><thead><tr><th>Zone</th><th class="r">Lignes</th><th class="r">Quantité</th><th>Inventoriste</th><th>Fin</th></tr></thead><tbody>'+zrows+'<tr class="tt"><td>Total</td><td class="r">'+num(L.length)+'</td><td class="r">'+num(tot)+'</td><td></td><td></td></tr></tbody></table>'+
-      '<p class="note">Les quantités reflètent le stock présent au moment du comptage. Le détail ligne par ligne et le journal des corrections figurent dans le fichier Excel remis avec ce rapport.</p>'+
-      '<div class="sig"><div><b>L’inventoriste</b><span>Nom : '+esc(state.counter || "")+'</span><span>Signature :</span></div><div><b>Le responsable du magasin</b><span>Nom :</span><span>Signature :</span></div></div>'+
-      '<footer>Édité le '+new Date().toLocaleString("fr-FR")+'</footer></div>';
+    /* Répartition par zone */
+    h += '<h2>'+sec+'. Répartition par zone</h2><table><thead><tr><th>Zone</th><th class="r">Références</th><th class="r">Quantité</th><th class="r">Part</th>'+(hasCost ? '<th class="r">Valeur HT</th>' : '')+'</tr></thead><tbody>'+
+      zs.map(z => { const zl = L.filter(l => l.zone === z), q = sum(zl), v = zl.reduce((a, l) => { const it = itemOf(l.code); return a + (it && it.cost != null ? it.cost * l.qty : 0); }, 0);
+        return '<tr><td>'+esc(z)+'</td><td class="r">'+num(new Set(zl.map(l => normCode(l.code))).size)+'</td><td class="r">'+num(q)+'</td><td class="r">'+(tot ? pct(q * 100 / tot) : '—')+'</td>'+(hasCost ? '<td class="r">'+fmtEur(v)+'</td>' : '')+'</tr>'; }).join("")+
+      '<tr class="tt"><td>Total</td><td class="r">'+num(refs.length)+'</td><td class="r">'+num(tot)+'</td><td class="r">100 %</td>'+(hasCost ? '<td class="r">'+fmtEur(valCt)+'</td>' : '')+'</tr></tbody></table>';
+    sec++;
+    /* Principales références */
+    const topR = refs.slice().sort((a,b) => hasCost ? (b.qty * (b.cost || 0)) - (a.qty * (a.cost || 0)) : b.qty - a.qty).slice(0, 15);
+    h += '<h2>'+sec+'. Principales références '+(hasCost ? 'en valeur' : 'en quantité')+'</h2><table><thead><tr><th>Code</th><th>Désignation</th><th class="r">Quantité</th>'+(hasCost ? '<th class="r">PU HT</th><th class="r">Valeur HT</th>' : '')+'</tr></thead><tbody>'+
+      topR.map(r => '<tr><td class="m">'+esc(r.code)+'</td><td>'+esc(r.name || (master ? "Inconnu du fichier article" : "—"))+'</td><td class="r">'+num(r.qty)+'</td>'+(hasCost ? '<td class="r">'+(r.cost == null ? '—' : fmtEur(r.cost))+'</td><td class="r">'+(r.cost == null ? '—' : fmtEur(r.cost * r.qty))+'</td>' : '')+'</tr>').join("")+'</tbody></table>';
+    sec++;
+    /* Observations */
+    h += '<h2>'+sec+'. Observations et réserves</h2><div class="obs">'+(state.reportNotes ? esc(state.reportNotes).replace(/\n/g, "<br>") : 'Néant.')+'</div>';
+    /* Validation */
+    h += '<div class="sig"><div><b>Pour le prestataire</b><span>'+esc(C.name || "")+'</span><span>Date :</span><span>Signature :</span></div>'+
+      '<div><b>Pour le client</b><span>Nom et qualité :</span><span>Date :</span><span>Signature, précédée de « Lu et approuvé » :</span></div></div>'+
+      '<p class="note">Les quantités reflètent le stock physiquement présent et accessible au moment du comptage. Le client dispose de 48 heures après remise du rapport pour formuler une réserve écrite ; passé ce délai, l’inventaire est réputé accepté. Le détail ligne par ligne figure en annexe et dans le fichier Excel remis avec ce rapport.</p>';
+    /* Annexes */
+    const ann = refs.slice().sort((a,b) => String(a.name || "~").localeCompare(String(b.name || "~")) || String(a.code).localeCompare(String(b.code)));
+    const cap = 3000;
+    h += '<h2 class="pb">Annexe A — Inventaire détaillé par référence</h2><table class="sm"><thead><tr><th>Code</th><th>Désignation</th><th>Zones</th><th class="r">Quantité</th>'+(hasCost ? '<th class="r">PU HT</th><th class="r">Valeur HT</th>' : '')+'</tr></thead><tbody>'+
+      ann.slice(0, cap).map(r => '<tr><td class="m">'+esc(r.code)+'</td><td>'+esc(r.name || (master ? "Inconnu du fichier article" : ""))+'</td><td>'+esc([...r.zones].sort().join(" "))+'</td><td class="r">'+num(r.qty)+'</td>'+(hasCost ? '<td class="r">'+(r.cost == null ? '—' : fmtEur(r.cost))+'</td><td class="r">'+(r.cost == null ? '—' : fmtEur(r.cost * r.qty))+'</td>' : '')+'</tr>').join("")+
+      '<tr class="tt"><td colspan="3">Total ('+num(refs.length)+' références)</td><td class="r">'+num(tot)+'</td>'+(hasCost ? '<td></td><td class="r">'+fmtEur(valCt)+'</td>' : '')+'</tr></tbody></table>'+(ann.length > cap ? '<p class="note">Liste limitée aux '+num(cap)+' premières références : la totalité figure dans le fichier Excel.</p>' : '');
+    if(master){
+      const unk = refs.filter(r => !r.known);
+      if(unk.length) h += '<h2>Annexe B — Codes absents du fichier article</h2><p class="tx">Ces articles ont été trouvés en rayon mais ne figurent pas dans le fichier article transmis : ils sont à créer ou à corriger dans le logiciel de caisse.</p><table class="sm"><thead><tr><th>Code</th><th>Zones</th><th class="r">Quantité</th></tr></thead><tbody>'+
+        unk.map(r => '<tr><td class="m">'+esc(r.code)+'</td><td>'+esc([...r.zones].sort().join(" "))+'</td><td class="r">'+num(r.qty)+'</td></tr>').join("")+'</tbody></table>';
+    }
+    h += '<footer>Rapport n° '+ref+' · édité le '+new Date().toLocaleString("fr-FR", {dateStyle:"short", timeStyle:"short"})+'</footer></div>';
+    return h;
   }
-  const REPORT_CSS = '.rp{font:12px/1.4 Roboto,Arial,sans-serif;color:#111;max-width:190mm;margin:0 auto}.rp header{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #0F4C5C;padding-bottom:8px;margin-bottom:12px}.rp .rt{font-size:20px;font-weight:700;color:#0F4C5C}.rp .rs{font-size:15px;margin-top:2px}.rp .rd{text-align:right;font-size:12px;color:#444}.rp h2{font-size:14px;color:#0F4C5C;margin:18px 0 6px;border-bottom:1px solid #ccc;padding-bottom:3px}.rp h3{font-size:12px;margin:12px 0 4px}.rp table{width:100%;border-collapse:collapse;margin-bottom:6px}.rp th{background:#E2EEF0;text-align:left;font-weight:600;padding:4px 6px;border:1px solid #c9d6d9}.rp td{padding:3px 6px;border:1px solid #ddd;vertical-align:top}.rp .r{text-align:right;white-space:nowrap}.rp .m{font-family:monospace}.rp .neg{color:#B3261E}.rp .pos{color:#1F6E3A}.rp .kv td:nth-child(odd){background:#F5F7F8;color:#444;width:22%}.rp .tt td{font-weight:700;background:#F5F7F8}.rp .note{font-size:11px;color:#555;margin-top:10px}.rp .sig{display:flex;gap:16px;margin-top:22px}.rp .sig div{flex:1;border:1px solid #999;min-height:90px;padding:8px;display:flex;flex-direction:column;gap:14px}.rp footer{margin-top:16px;font-size:10px;color:#777;text-align:right}.rp tr{page-break-inside:avoid}';
+  const REPORT_CSS = '@page{size:A4;margin:14mm 12mm 16mm;@bottom-right{content:"Page " counter(page) " / " counter(pages);font:9px Roboto,Arial,sans-serif;color:#777}}'+
+    '.rp{font:11px/1.45 Roboto,Arial,sans-serif;color:#1a1a1a;max-width:186mm;margin:0 auto}'+
+    '.rp header{display:flex;justify-content:space-between;align-items:stretch;gap:12px;margin-bottom:10px}'+
+    '.rp .pr{border-left:4px solid #E8A33D;padding:2px 0 2px 10px}.rp .pn{font-size:15px;font-weight:700;color:#0F4C5C}.rp .pd{font-size:10px;color:#555;margin-top:2px}'+
+    '.rp .dt{background:#0F4C5C;color:#fff;padding:8px 14px;text-align:right;display:flex;flex-direction:column;justify-content:center}.rp .dtt{font-size:15px;font-weight:700;letter-spacing:.06em}.rp .dtn{font-size:10px;opacity:.85;margin-top:2px}'+
+    '.rp h2{font-size:13px;color:#0F4C5C;margin:16px 0 6px;padding-bottom:3px;border-bottom:2px solid #0F4C5C;text-transform:uppercase;letter-spacing:.03em}.rp h3{font-size:11px;margin:10px 0 4px;color:#333}'+
+    '.rp table{width:100%;border-collapse:collapse;margin-bottom:4px}.rp th{background:#E2EEF0;text-align:left;font-weight:600;padding:4px 6px;border:1px solid #c9d6d9;font-size:10px}.rp td{padding:3px 6px;border:1px solid #dde3e5;vertical-align:top}'+
+    '.rp table.sm td{padding:2px 6px;font-size:10px}.rp .r{text-align:right;white-space:nowrap}.rp .m{font-family:"Roboto Mono",Consolas,monospace;font-size:10px}.rp .neg{color:#B3261E}.rp .pos{color:#1F6E3A}'+
+    '.rp .id td:nth-child(odd),.rp .kv td:nth-child(odd){background:#F4F7F8;color:#555;width:18%}.rp .tt td{font-weight:700;background:#F4F7F8}'+
+    '.rp .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:6px 0}.rp .k{border:1px solid #c9d6d9;border-top:3px solid #0F4C5C;padding:6px 8px}.rp .k b{display:block;font-size:16px}.rp .k span{font-size:9.5px;color:#555}.rp .k.neg b{color:#B3261E}'+
+    '.rp .tx{margin:6px 0}.rp .mt{margin:4px 0;padding-left:16px}.rp .mt li{margin:2px 0}.rp .obs{border:1px solid #dde3e5;padding:8px;min-height:36px;background:#FAFBFB}'+
+    '.rp .sig{display:flex;gap:14px;margin-top:16px;page-break-inside:avoid}.rp .sig div{flex:1;border:1px solid #9aa;min-height:110px;padding:8px;display:flex;flex-direction:column;gap:10px}'+
+    '.rp .note{font-size:9.5px;color:#555;margin-top:8px}.rp footer{margin-top:14px;font-size:9px;color:#777;text-align:right}.rp tr,.rp .k{page-break-inside:avoid}.rp thead{display:table-header-group}.rp .pb{page-break-before:always}';
+  async function reportData(){
+    if(state.team){
+      try{ const t = await fetchTeam(); return {lines: t.lines, log: t.log, src: t.src, devices: new Set(t.lines.map(l => l.device)).size || 1}; }
+      catch(e){ flash("Équipe injoignable : rapport sur ce terminal seulement.", "bad"); }
+    }
+    return {lines: state.lines.slice(), log: (state.log || []).slice(), src: "local", devices: 1};
+  }
   function reportSheet(){
-    if(!state.lines.length){ flash("Rien à mettre dans le rapport : aucun article compté.", "bad"); return; }
-    openSheet('<h2>Rapport client</h2><p>Rapport d’inventaire prêt à signer'+(master ? ', avec les écarts'+(computeEcarts(state.lines).tot.hasCost ? ' valorisés en euros' : '') : ' (charge le stock théorique pour y ajouter les écarts)')+'.</p>'+
+    if(!state.lines.length && !state.team){ flash("Rien à mettre dans le rapport : aucun article compté.", "bad"); return; }
+    const C = state.company || {};
+    openSheet('<h2>Rapport client</h2>'+
+      '<p>Le rapport additionne les comptages de tous les terminaux'+(state.team ? ' de l’équipe ' + esc(state.team.code) : ' fusionnés sur ce terminal')+'.</p>'+
+      '<label>Client<input id="rpCli" value="'+esc(state.mission || "")+'" placeholder="Nom du magasin"></label>'+
+      '<label>Adresse du site<input id="rpSite" value="'+esc(state.site || "")+'" placeholder="12 rue …, 95100 Argenteuil"></label>'+
+      '<label>Observations et réserves<textarea id="rpObs" rows="3" placeholder="Ex. : réserve non accessible, articles en dépôt exclus…">'+esc(state.reportNotes || "")+'</textarea></label>'+
+      '<details><summary style="font-weight:600;padding:6px 0">Prestataire (en-tête du rapport)</summary>'+
+      '<label>Raison sociale<input id="rpCo" value="'+esc(C.name || "")+'" placeholder="Nom de ta micro-entreprise"></label>'+
+      '<label>SIRET<input id="rpSi" value="'+esc(C.siret || "")+'" inputmode="numeric"></label>'+
+      '<label>Contact<input id="rpCt" value="'+esc(C.contact || "")+'" placeholder="Téléphone · e-mail"></label></details>'+
       '<div class="btnrow"><button class="btn primary" id="rpPdf">Enregistrer en PDF / imprimer</button></div>'+
       '<div class="btnrow"><button class="btn" id="rpDl">Télécharger le rapport</button><button class="btn" id="rpNo">Fermer</button></div>'+
       '<p style="font-size:13px">Dans la fenêtre d’impression, choisis « Enregistrer au format PDF ».</p>');
-    $("rpNo").onclick = closeSheet;
-    $("rpPdf").onclick = () => {
+    $("sheet").querySelectorAll("input,textarea").forEach(x => x.addEventListener("keydown", e => e.stopPropagation()));
+    const keep = () => { state.mission = $("rpCli").value.trim(); state.site = $("rpSite").value.trim(); state.reportNotes = $("rpObs").value.trim();
+      state.company = {name: $("rpCo").value.trim(), siret: $("rpSi").value.trim(), contact: $("rpCt").value.trim()}; save(); };
+    $("rpNo").onclick = () => { keep(); closeSheet(); };
+    $("rpPdf").onclick = async () => {
+      keep(); $("rpPdf").textContent = "Préparation…";
+      const D = await reportData();
+      if(!D.lines.length){ flash("Aucun article compté.", "bad"); return; }
       let r = $("report"); if(!r){ r = document.createElement("div"); r.id = "report"; document.body.appendChild(r); }
-      r.innerHTML = '<style>'+REPORT_CSS+'</style>' + reportHTML();
+      r.innerHTML = '<style>'+REPORT_CSS+'</style>' + reportHTML(D);
       const t = document.title; document.title = "Rapport inventaire " + (state.mission || "") + " " + new Date().toISOString().slice(0,10);
-      closeSheet(); logAct("Rapport client édité", "", "", sum(state.lines), ""); save();
-      setTimeout(() => { window.print(); document.title = t; }, 100);
+      closeSheet(); logAct("Rapport client édité", "", "", sum(D.lines), ""); save();
+      setTimeout(() => { window.print(); document.title = t; }, 150);
     };
-    $("rpDl").onclick = () => {
-      const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Rapport inventaire</title><style>body{margin:12mm}'+REPORT_CSS+'@media print{body{margin:0}}</style></head><body>'+reportHTML()+'</body></html>';
+    $("rpDl").onclick = async () => {
+      keep(); const D = await reportData();
+      const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Rapport inventaire</title><style>body{margin:12mm}'+REPORT_CSS+'@media print{body{margin:0}}</style></head><body>'+reportHTML(D)+'</body></html>';
       const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([html], {type: "text/html"}));
       a.download = "Rapport inventaire " + (state.mission || "mission").replace(/[\\/:*?"<>|]/g, "-") + " " + new Date().toISOString().slice(0,10) + ".html";
       document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
@@ -1592,7 +1679,7 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 54 du 17/11/2026</p>');
+      '<p class="mver">Version 55 du 17/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -1639,7 +1726,7 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
   }
 
   /* Missions: archive instead of delete */
-  function settingsOf(s){ return {prefix:s.prefix, counter:s.counter, confirm:s.confirm, check:s.check, autoBackup:s.autoBackup, bigQty:s.bigQty, hold:s.hold, loggedIn:s.loggedIn, badge:s.badge, sessionStart:s.sessionStart, backup:s.backup, wake:s.wake}; }
+  function settingsOf(s){ return {prefix:s.prefix, counter:s.counter, confirm:s.confirm, check:s.check, autoBackup:s.autoBackup, bigQty:s.bigQty, hold:s.hold, loggedIn:s.loggedIn, badge:s.badge, sessionStart:s.sessionStart, backup:s.backup, wake:s.wake, company:s.company}; }
   function archiveCurrent(){
     if(!state.lines.length && !(state.log||[]).length) return true;
     const a = loadArch();

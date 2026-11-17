@@ -508,6 +508,29 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
 .sheet details label{margin-top:8px}
 .sheet select{font:inherit;font-size:16px;padding:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
 .sheet h3{font-size:14px;color:var(--brand)}
+
+/* ===== Poste bureau ===== */
+.bureau-ui{display:none}
+body.bureau{overflow:auto;background:#E9EDEF}
+body.bureau .app,body.bureau .logon{display:none!important}
+body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:100vh;font-family:Roboto,"Segoe UI",system-ui,sans-serif;color:#1b1b1b}
+.bw-side{background:#fff;border-right:1px solid #cfd6d9;padding:0 0 24px;display:flex;flex-direction:column;gap:0;position:sticky;top:0;height:100vh;overflow-y:auto}
+.bw-brand{background:#0F4C5C;color:#fff;padding:16px 20px;border-bottom:3px solid #E8A33D;display:flex;flex-direction:column}
+.bw-brand b{font-size:18px}.bw-brand span{font-size:12px;opacity:.8}
+.bw-side section{padding:14px 20px;border-bottom:1px solid #e4e8ea;display:flex;flex-direction:column;gap:8px}
+.bw-side h3{margin:0;font-size:14px;color:#0F4C5C}.bw-side p{margin:0;font-size:13px;color:#555}
+.bw-side input,.bw-side textarea{font:inherit;font-size:15px;padding:8px 10px;border:1px solid #c9d1d4;border-radius:2px;width:100%;box-sizing:border-box}
+.bw-side label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:#555}
+.bw-row{display:flex;gap:6px}.bw-row input{flex:1;text-transform:uppercase;font-size:18px;letter-spacing:.08em}
+.bw-side .btn{width:100%;padding:10px;font-size:14px}.bw-row .btn{width:auto}
+.bw-side .btn[disabled]{opacity:.45}
+.bw-msg{color:#B3261E!important}.bw-ok{background:#E2EEF0;padding:8px 10px;color:#0B3A46!important;line-height:1.5}
+.bw-tip{font-size:12px!important}
+.bw-main{padding:24px;overflow:auto}
+.bw-prev{background:#fff;max-width:210mm;margin:0 auto;padding:14mm 12mm;box-shadow:0 2px 14px rgba(0,0,0,.12);min-height:297mm;box-sizing:border-box}
+.bw-prev .rp[contenteditable]:focus{outline:2px dashed #E8A33D;outline-offset:6px}
+.bw-empty{color:#777;text-align:center;padding-top:120px}
+@media (max-width:900px){ body.bureau .bureau-ui{grid-template-columns:1fr} .bw-side{position:static;height:auto} }
 </style>
 </head>
 <body>
@@ -568,6 +591,7 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
 
 <input id="scan" inputmode="none" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Entrée scanner">
 
+<div class="bureau-ui" id="bureau"></div>
 <div class="logon" id="logon" role="dialog" aria-modal="true">
   <div class="lmark">III</div>
   <h1>Log on</h1>
@@ -584,7 +608,10 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
 
 <script>
 (function(){
-  const KEY = "comptage-zones-v1";
+  /* Poste bureau (PC) : …/#bureau — données séparées du terminal, pour éditer le rapport client */
+  const BUREAU = /bureau/i.test(location.hash) || /[?&]bureau/i.test(location.search);
+  if(BUREAU) document.body.classList.add("bureau");
+  const KEY = BUREAU ? "comptage-bureau-v1" : "comptage-zones-v1";
   const $ = id => document.getElementById(id);
   let state = load();
   let qtyBuf = "";
@@ -796,7 +823,7 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
 
   /* Scanner input */
   const scan = $("scan");
-  function focusScan(){ if(!sheetOpen){ try{ scan.focus({preventScroll:true}); }catch(e){ scan.focus(); } } updateStatus(); }
+  function focusScan(){ if(BUREAU) return; if(!sheetOpen){ try{ scan.focus({preventScroll:true}); }catch(e){ scan.focus(); } } updateStatus(); }
   function isTypingField(){ const a = document.activeElement; return a && a !== scan && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable); }
   function updateStatus(){
     if(controlMode){
@@ -1093,7 +1120,7 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
   /* ===== Sauvegarde serveur automatique (Firebase) ===== */
   const BK_KEY = "comptage-bk-last", bkCode = () => "K" + deviceId.slice(0, 5).toUpperCase();
   const BK = {timer: null, running: false, err: "", last: (() => { try{ return parseInt(localStorage.getItem(BK_KEY), 10) || 0; }catch(e){ return 0; } })()};
-  const bkOn = () => state.backup !== false;
+  const bkOn = () => !BUREAU && state.backup !== false;
   function scheduleBackup(delay){ if(!bkOn()) return; clearTimeout(BK.timer); BK.timer = setTimeout(runBackup, delay == null ? 15000 : delay); }
   async function runBackup(){
     if(!bkOn() || BK.running) return;
@@ -1184,7 +1211,7 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
     if(R.contact) idc.push(["Responsable sur place", esc(R.contact)]);
     idc.push(["Horaires de comptage", hm(t0)+' – '+hm(t1)+' ('+fmtDur(t1 - t0)+')']);
     idc.push(["Statut", state.finished ? 'Inventaire clôturé' : 'Comptage en cours (provisoire)']);
-    if(D.devices > 1 || D.src === "cache") idc.push(["Données consolidées", D.devices+' terminal'+(D.devices > 1 ? 'aux' : '')+(D.src === "cache" ? ' (hors ligne : données en cache)' : '')]);
+    if(D.devices > 1 || D.src === "cache") idc.push(["Données consolidées", D.devices+(D.devices > 1 ? ' terminaux' : ' terminal')+(D.src === "cache" ? ' (hors ligne : données en cache)' : '')]);
     if(R.scope) idc.push(["Périmètre", esc(R.scope)]);
     h += '<table class="id">';
     for(let k = 0; k < idc.length; k += 2) h += '<tr><td>'+idc[k][0]+'</td><td>'+idc[k][1]+'</td>'+(idc[k+1] ? '<td>'+idc[k+1][0]+'</td><td>'+idc[k+1][1]+'</td>' : '<td></td><td></td>')+'</tr>';
@@ -1210,8 +1237,8 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
     /* 3. Rapprochement */
     let sec = R.method !== false ? 3 : 2;
     if(T){
-      const top = (arr, n) => arr.slice(0, n).map(r => '<tr><td class="m">'+esc(r.code)+'</td><td>'+esc(r.name || r.ref || "")+'</td><td class="r">'+num(r.th)+'</td><td class="r">'+num(r.ct)+'</td><td class="r '+(r.ec < 0 ? 'neg' : 'pos')+'">'+sgn(r.ec)+'</td>'+(T.hasCost ? '<td class="r">'+(r.vec == null ? '—' : fmtEur(r.vec))+'</td>' : '')+'</tr>').join("");
-      const hd = '<thead><tr><th>Code</th><th>Désignation</th><th class="r">Théorique</th><th class="r">Compté</th><th class="r">Écart</th>'+(T.hasCost ? '<th class="r">Écart HT</th>' : '')+'</tr></thead>';
+      const top = (arr, n) => arr.slice(0, n).map(r => '<tr><td>'+esc(r.name || r.ref || "Article sans désignation")+'</td><td class="r">'+num(r.th)+'</td><td class="r">'+num(r.ct)+'</td><td class="r '+(r.ec < 0 ? 'neg' : 'pos')+'">'+sgn(r.ec)+'</td>'+(T.hasCost ? '<td class="r">'+(r.vec == null ? '—' : fmtEur(r.vec))+'</td>' : '')+'</tr>').join("");
+      const hd = '<thead><tr><th>Désignation</th><th class="r">Théorique</th><th class="r">Compté</th><th class="r">Écart</th>'+(T.hasCost ? '<th class="r">Écart HT</th>' : '')+'</tr></thead>';
       const key = r => T.hasCost ? Math.abs(r.vec || 0) : Math.abs(r.ec);
       const miss = rowsEc.filter(r => r.ec < 0).sort((a,b) => key(b) - key(a)), extra = rowsEc.filter(r => r.ec > 0).sort((a,b) => key(b) - key(a));
       h += '<h2>'+sec+'. Rapprochement avec le stock théorique</h2><table class="kv"><tr><td>Quantité théorique</td><td class="r">'+num(T.th)+'</td><td>Quantité comptée</td><td class="r">'+num(T.ct)+'</td></tr>'+
@@ -1227,27 +1254,30 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
         return '<tr><td>'+esc(z)+'</td><td class="r">'+num(new Set(zl.map(l => normCode(l.code))).size)+'</td><td class="r">'+num(q)+'</td><td class="r">'+(tot ? pct(q * 100 / tot) : '—')+'</td>'+(hasCost ? '<td class="r">'+fmtEur(v)+'</td>' : '')+'</tr>'; }).join("")+
       '<tr class="tt"><td>Total</td><td class="r">'+num(refs.length)+'</td><td class="r">'+num(tot)+'</td><td class="r">100 %</td>'+(hasCost ? '<td class="r">'+fmtEur(valCt)+'</td>' : '')+'</tr></tbody></table>';
     sec++;
-    /* Principales références */
-    const topR = refs.slice().sort((a,b) => hasCost ? (b.qty * (b.cost || 0)) - (a.qty * (a.cost || 0)) : b.qty - a.qty).slice(0, 15);
-    h += '<h2>'+sec+'. Principales références '+(hasCost ? 'en valeur' : 'en quantité')+'</h2><table><thead><tr><th>Code</th><th>Désignation</th><th class="r">Quantité</th>'+(hasCost ? '<th class="r">PU HT</th><th class="r">Valeur HT</th>' : '')+'</tr></thead><tbody>'+
-      topR.map(r => '<tr><td class="m">'+esc(r.code)+'</td><td>'+esc(r.name || (master ? "Inconnu du fichier article" : "—"))+'</td><td class="r">'+num(r.qty)+'</td>'+(hasCost ? '<td class="r">'+(r.cost == null ? '—' : fmtEur(r.cost))+'</td><td class="r">'+(r.cost == null ? '—' : fmtEur(r.cost * r.qty))+'</td>' : '')+'</tr>').join("")+'</tbody></table>';
-    sec++;
+    /* Principales références (désignations du fichier client) */
+    if(master){
+      const known = refs.filter(r => r.known);
+      const topR = known.slice().sort((a,b) => hasCost ? (b.qty * (b.cost || 0)) - (a.qty * (a.cost || 0)) : b.qty - a.qty).slice(0, 15);
+      if(topR.length){
+        h += '<h2>'+sec+'. Principales références '+(hasCost ? 'en valeur' : 'en quantité')+'</h2><table><thead><tr><th>Désignation</th><th class="r">Quantité</th>'+(hasCost ? '<th class="r">PU HT</th><th class="r">Valeur HT</th>' : '')+'</tr></thead><tbody>'+
+          topR.map(r => '<tr><td>'+esc(r.name || "Article sans désignation")+'</td><td class="r">'+num(r.qty)+'</td>'+(hasCost ? '<td class="r">'+(r.cost == null ? '—' : fmtEur(r.cost))+'</td><td class="r">'+(r.cost == null ? '—' : fmtEur(r.cost * r.qty))+'</td>' : '')+'</tr>').join("")+'</tbody></table>';
+        sec++;
+      }
+    }
     /* Observations */
     h += '<h2>'+sec+'. Observations et réserves</h2><div class="obs">'+(state.reportNotes ? esc(state.reportNotes).replace(/\n/g, "<br>") : 'Néant.')+'</div>';
     /* Validation */
     h += '<div class="sig"><div><b>Pour le prestataire</b><span>'+esc(C.name || "")+'</span><span>Date :</span><span>Signature :</span></div>'+
       '<div><b>Pour le client</b><span>Nom et qualité : '+esc(R.contact || "")+'</span><span>Date :</span><span>Signature, précédée de « Lu et approuvé » :</span></div></div>'+
-      '<p class="note">Les quantités reflètent le stock physiquement présent et accessible au moment du comptage. ' + (parseInt(R.claimDays, 10) > 0 ? ' Le client dispose de ' + parseInt(R.claimDays, 10) + ' jour' + (parseInt(R.claimDays, 10) > 1 ? 's' : '') + ' après remise du rapport pour formuler une réserve écrite ; passé ce délai, l’inventaire est réputé accepté.' : '') + (R.annex !== false ? ' Le détail ligne par ligne figure en annexe et dans le fichier Excel remis avec ce rapport.' : ' Le détail ligne par ligne figure dans le fichier Excel remis avec ce rapport.') + '</p>';
-    /* Annexes */
-    const ann = refs.slice().sort((a,b) => String(a.name || "~").localeCompare(String(b.name || "~")) || String(a.code).localeCompare(String(b.code)));
-    const cap = 3000;
-    if(R.annex !== false) h += '<h2 class="pb">Annexe A — Inventaire détaillé par référence</h2><table class="sm"><thead><tr><th>Code</th><th>Désignation</th><th>Zones</th><th class="r">Quantité</th>'+(hasCost ? '<th class="r">PU HT</th><th class="r">Valeur HT</th>' : '')+'</tr></thead><tbody>'+
-      ann.slice(0, cap).map(r => '<tr><td class="m">'+esc(r.code)+'</td><td>'+esc(r.name || (master ? "Inconnu du fichier article" : ""))+'</td><td>'+esc([...r.zones].sort().join(" "))+'</td><td class="r">'+num(r.qty)+'</td>'+(hasCost ? '<td class="r">'+(r.cost == null ? '—' : fmtEur(r.cost))+'</td><td class="r">'+(r.cost == null ? '—' : fmtEur(r.cost * r.qty))+'</td>' : '')+'</tr>').join("")+
-      '<tr class="tt"><td colspan="3">Total ('+num(refs.length)+' références)</td><td class="r">'+num(tot)+'</td>'+(hasCost ? '<td></td><td class="r">'+fmtEur(valCt)+'</td>' : '')+'</tr></tbody></table>'+(ann.length > cap ? '<p class="note">Liste limitée aux '+num(cap)+' premières références : la totalité figure dans le fichier Excel.</p>' : '');
-    if(master){
-      const unk = refs.filter(r => !r.known);
-      if(unk.length && R.annex !== false) h += '<h2>Annexe B — Codes absents du fichier article</h2><p class="tx">Ces articles ont été trouvés en rayon mais ne figurent pas dans le fichier article transmis : ils sont à créer ou à corriger dans le logiciel de caisse.</p><table class="sm"><thead><tr><th>Code</th><th>Zones</th><th class="r">Quantité</th></tr></thead><tbody>'+
-        unk.map(r => '<tr><td class="m">'+esc(r.code)+'</td><td>'+esc([...r.zones].sort().join(" "))+'</td><td class="r">'+num(r.qty)+'</td></tr>').join("")+'</tbody></table>';
+      '<p class="note">Les quantités reflètent le stock physiquement présent et accessible au moment du comptage. ' + (parseInt(R.claimDays, 10) > 0 ? ' Le client dispose de ' + parseInt(R.claimDays, 10) + ' jour' + (parseInt(R.claimDays, 10) > 1 ? 's' : '') + ' après remise du rapport pour formuler une réserve écrite ; passé ce délai, l’inventaire est réputé accepté.' : '') + (R.annex !== false && master ? ' Le détail par désignation figure en annexe ; le détail par code-barres et par zone figure dans le fichier Excel remis avec ce rapport.' : ' Le détail par code-barres et par zone figure dans le fichier Excel remis avec ce rapport.') + '</p>';
+    /* Annexe : inventaire par désignation (sans codes-barres, présents dans l’Excel) */
+    if(R.annex !== false && master){
+      const known = refs.filter(r => r.known).sort((a,b) => String(a.name || "~").localeCompare(String(b.name || "~"), "fr")), unk = refs.filter(r => !r.known), cap = 3000;
+      h += '<h2 class="pb">Annexe — Inventaire détaillé par article</h2><table class="sm"><thead><tr><th>Désignation</th><th>Zones</th><th class="r">Quantité</th>'+(hasCost ? '<th class="r">PU HT</th><th class="r">Valeur HT</th>' : '')+'</tr></thead><tbody>'+
+        known.slice(0, cap).map(r => '<tr><td>'+esc(r.name || "Article sans désignation")+'</td><td>'+esc([...r.zones].sort().join(" "))+'</td><td class="r">'+num(r.qty)+'</td>'+(hasCost ? '<td class="r">'+(r.cost == null ? '—' : fmtEur(r.cost))+'</td><td class="r">'+(r.cost == null ? '—' : fmtEur(r.cost * r.qty))+'</td>' : '')+'</tr>').join("")+
+        (unk.length ? '<tr><td><i>Articles absents du fichier article ('+num(unk.length)+' réf.)</i></td><td>'+esc([...new Set(unk.flatMap(r => [...r.zones]))].sort().join(" "))+'</td><td class="r">'+num(unk.reduce((a, r) => a + r.qty, 0))+'</td>'+(hasCost ? '<td class="r">—</td><td class="r">—</td>' : '')+'</tr>' : '')+
+        '<tr class="tt"><td colspan="2">Total ('+num(refs.length)+' références)</td><td class="r">'+num(tot)+'</td>'+(hasCost ? '<td></td><td class="r">'+fmtEur(valCt)+'</td>' : '')+'</tr></tbody></table>'+
+        (known.length > cap ? '<p class="note">Liste limitée aux '+num(cap)+' premières références : la totalité figure dans le fichier Excel.</p>' : '');
     }
     h += '<footer>Rapport n° '+ref+' · édité le '+new Date().toLocaleString("fr-FR", {dateStyle:"short", timeStyle:"short"})+'</footer></div>';
     return h;
@@ -1266,6 +1296,7 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
     '.rp .sig{display:flex;gap:14px;margin-top:16px;page-break-inside:avoid}.rp .sig div{flex:1;border:1px solid #9aa;min-height:110px;padding:8px;display:flex;flex-direction:column;gap:10px}'+
     '.rp .note{font-size:9.5px;color:#555;margin-top:8px}.rp footer{margin-top:14px;font-size:9px;color:#777;text-align:right}.rp tr,.rp .k{page-break-inside:avoid}.rp thead{display:table-header-group}.rp .pb{page-break-before:always}';
   async function reportData(){
+    if(BUREAU) return {lines: state.lines.slice(), log: (state.log || []).slice(), src: "local", devices: state.srcDevices || new Set(state.lines.map(l => l.device || "local")).size || 1};
     if(state.team){
       try{ const t = await fetchTeam(); return {lines: t.lines, log: t.log, src: t.src, devices: new Set(t.lines.map(l => l.device)).size || 1}; }
       catch(e){ flash("Équipe injoignable : rapport sur ce terminal seulement.", "bad"); }
@@ -1322,7 +1353,8 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
       '<label>Observations et réserves<textarea id="rpObs" rows="3" placeholder="Ex. : réserve non accessible, articles en dépôt exclus…">'+esc(state.reportNotes || "")+'</textarea></label>'+
       '<div class="btnrow"><button class="btn primary" id="rpPdf">Enregistrer en PDF / imprimer</button></div>'+
       '<div class="btnrow"><button class="btn" id="rpDl">Télécharger le rapport</button><button class="btn" id="rpNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Dans la fenêtre d’impression, choisis « Enregistrer au format PDF ».</p>');
+      '<p style="font-size:13px">Dans la fenêtre d’impression, choisis « Enregistrer au format PDF ».</p>'+
+      '<p style="font-size:13px"><b>Sur ton PC</b> : ouvre <b>'+esc(location.origin + location.pathname)+'#bureau</b> et saisis le code <b>'+(state.team ? esc(state.team.code) : bkCode())+'</b>.</p>');
     $("sheet").querySelectorAll("input,textarea").forEach(x => x.addEventListener("keydown", e => e.stopPropagation()));
     const keep = () => { state.reportNotes = $("rpObs").value.trim(); save(); };
     $("rpInfo").onclick = () => { keep(); infoSheet(true); };
@@ -1345,6 +1377,84 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
       document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
       flash("Rapport téléchargé : ouvre-le et imprime-le en PDF si besoin.", "ok");
     };
+  }
+  /* ===== Poste bureau ===== */
+  function bureauBoot(){ document.title = "Rapport d’inventaire — poste bureau"; renderBureau(); }
+  async function bureauLoad(code){
+    code = String(code || "").trim().toUpperCase().replace(/\s+/g, "");
+    if(!/^[A-Z0-9]{6}$/.test(code)){ flash("Code invalide : 6 caractères (code K… du terminal ou code d’équipe).", "bad"); renderBureau("Code invalide : 6 caractères."); return; }
+    renderBureau("Chargement de " + code + "…");
+    try{
+      await fbInit();
+      const m = db.collection("missions").doc(code), keepS = settingsOf(state), company = state.company;
+      const bk = await m.collection("devices").doc("backup").get({source: "server"});
+      let st;
+      if(bk.exists && bk.data().backup){
+        st = Object.assign(blank(), JSON.parse(bk.data().backup));
+        st.srcDevices = 1; st.srcLabel = "Sauvegarde du terminal " + code + " du " + new Date(bk.data().at).toLocaleString("fr-FR");
+      } else {
+        const [pd, ls, lg] = await Promise.all([m.get({source: "server"}), m.collection("lines").get({source: "server"}), m.collection("log").get({source: "server"})]);
+        if(!ls.size){ renderBureau("Aucune donnée trouvée pour " + code + "."); return; }
+        const lines = [], log = []; let id = 1;
+        ls.forEach(d => { const x = d.data(); lines.push({id: id++, zone: x.zone, code: x.code, qty: x.qty, src: x.src || "scan", who: x.who || "", t: x.t, device: x.device}); });
+        lg.forEach(d => log.push(d.data()));
+        lines.sort((a, b) => String(a.t).localeCompare(String(b.t))); log.sort((a, b) => String(a.t).localeCompare(String(b.t)));
+        st = Object.assign(blank(), keepS, {mission: (pd.exists && pd.data().name) || "", lines, log, seq: id, zones: [...new Set(lines.map(l => l.zone))].sort(), startedAt: lines.length ? lines[0].t : new Date().toISOString()});
+        st.srcDevices = new Set(lines.map(l => l.device)).size; st.srcLabel = "Équipe " + code + " (" + st.srcDevices + (st.srcDevices > 1 ? " terminaux" : " terminal") + ")";
+      }
+      st.loggedIn = true; st.zone = null; delete st.team; delete st.sync; st.backup = false;
+      if(company && company.name && !(st.company && st.company.name)) st.company = company;
+      st.srcCode = code; state = st; loadMaster(); save();
+      renderBureau(); flash("Mission chargée.", "ok");
+    }catch(e){ renderBureau("Chargement impossible : " + errMsg(e)); }
+  }
+  let bwPreviewDirty = false;
+  function renderBureau(msg){
+    if(!BUREAU) return;
+    const has = state.lines.length, C = state.company || {};
+    $("bureau").innerHTML =
+      '<aside class="bw-side"><div class="bw-brand"><b>Rapport d’inventaire</b><span>Poste bureau</span></div>'+
+      '<section><h3>1. Données du comptage</h3><p>Saisis le code K… affiché sur le terminal (Menu › Sauvegarde serveur), ou le code d’équipe.</p>'+
+        '<div class="bw-row"><input id="bwCode" placeholder="K51RJN" maxlength="6" value="'+esc(state.srcCode || "")+'"><button class="btn primary" id="bwLoad">Charger</button></div>'+
+        (msg ? '<p class="bw-msg">'+esc(msg)+'</p>' : '')+
+        (has ? '<p class="bw-ok">'+esc(state.srcLabel || "Données locales")+'<br><b>'+state.lines.length+'</b> lignes · <b>'+sum(state.lines)+'</b> articles · <b>'+new Set(state.lines.map(l => l.zone)).size+'</b> zones</p>' : '')+
+        '<button class="btn" id="bwMerge">Ajouter un export Excel d’un autre terminal</button></section>'+
+      '<section><h3>2. Stock théorique du client</h3><p>'+(master ? '<b>'+esc(master.file)+'</b> : '+master.items.length+' références' : 'Facultatif : ajoute les désignations, les écarts et la valorisation.')+'</p>'+
+        '<button class="btn" id="bwMaster"'+(has ? '' : ' disabled')+'>'+(master ? 'Voir / remplacer le fichier' : 'Charger le fichier du client')+'</button></section>'+
+      '<section><h3>3. Informations du rapport</h3><p>'+infoCount()+' information'+(infoCount() > 1 ? 's' : '')+' renseignée'+(infoCount() > 1 ? 's' : '')+(C.name ? ' · prestataire : '+esc(C.name) : '')+'</p>'+
+        '<button class="btn" id="bwInfo">Modifier les informations</button>'+
+        '<label>Observations et réserves<textarea id="bwObs" rows="4">'+esc(state.reportNotes || "")+'</textarea></label></section>'+
+      '<section class="bw-act"><button class="btn primary" id="bwPrint"'+(has ? '' : ' disabled')+'>Imprimer / enregistrer en PDF</button>'+
+        '<button class="btn" id="bwDl"'+(has ? '' : ' disabled')+'>Télécharger le rapport (HTML)</button>'+
+        '<button class="btn" id="bwRef"'+(has ? '' : ' disabled')+'>Actualiser l’aperçu</button>'+
+        '<p class="bw-tip">Tu peux cliquer dans l’aperçu pour retoucher un texte avant d’imprimer. « Actualiser » efface ces retouches.</p></section></aside>'+
+      '<main class="bw-main"><div id="bwPrev" class="bw-prev">'+(has ? '' : '<div class="bw-empty">Charge une mission pour voir l’aperçu du rapport.</div>')+'</div></main>';
+    $("bureau").querySelectorAll("input,textarea").forEach(x => x.addEventListener("keydown", e => e.stopPropagation()));
+    $("bwCode").addEventListener("keydown", e => { if(e.key === "Enter") bureauLoad($("bwCode").value); });
+    $("bwLoad").onclick = () => bureauLoad($("bwCode").value);
+    $("bwMerge").onclick = () => pickMergeFile();
+    $("bwMaster").onclick = () => masterSheet();
+    $("bwInfo").onclick = () => infoSheet(false);
+    $("bwObs").addEventListener("change", () => { state.reportNotes = $("bwObs").value.trim(); save(); bwPreview(); });
+    $("bwRef").onclick = () => bwPreview();
+    $("bwPrint").onclick = () => { state.reportNotes = $("bwObs").value.trim(); save();
+      let r = $("report"); if(!r){ r = document.createElement("div"); r.id = "report"; document.body.appendChild(r); }
+      r.innerHTML = $("bwPrev").innerHTML; r.querySelectorAll("[contenteditable]").forEach(x => x.removeAttribute("contenteditable"));
+      const t = document.title; document.title = "Rapport inventaire " + (state.mission || "") + " " + new Date().toISOString().slice(0,10);
+      setTimeout(() => { window.print(); document.title = t; }, 100); };
+    $("bwDl").onclick = () => {
+      const c = $("bwPrev").cloneNode(true); c.querySelectorAll("[contenteditable]").forEach(x => x.removeAttribute("contenteditable"));
+      const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Rapport inventaire</title><style>body{margin:12mm}@media print{body{margin:0}}</style></head><body>'+c.innerHTML+'</body></html>';
+      const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([html], {type: "text/html"}));
+      a.download = "Rapport inventaire " + (state.mission || "mission").replace(/[\\/:*?"<>|]/g, "-") + " " + new Date().toISOString().slice(0,10) + ".html";
+      document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); };
+    if(has) bwPreview();
+  }
+  function bwPreview(){
+    if(!state.lines.length) return;
+    const D = {lines: state.lines.slice(), log: (state.log || []).slice(), src: "local", devices: state.srcDevices || 1};
+    $("bwPrev").innerHTML = '<style>'+REPORT_CSS+'</style>' + reportHTML(D);
+    const rp = $("bwPrev").querySelector(".rp"); if(rp) rp.setAttribute("contenteditable", "true");
   }
   /* ===== Scanner Zebra : guide de réglage ===== */
   function scannerSheet(){
@@ -1390,7 +1500,7 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
     $("loNo").onclick = closeSheet;
     $("loOk").onclick = () => { logAct("Log off", "", state.badge || "", q, ""); state.loggedIn = false; save(); closeSheet(); showLogon(); };
   }
-  if(!state.loggedIn) showLogon();
+  if(BUREAU) setTimeout(bureauBoot, 0); else if(!state.loggedIn) showLogon();
   /* Écran toujours en portrait normal (jamais retourné à 180°) */
   function lockPortrait(){ try{ screen.orientation && screen.orientation.lock && screen.orientation.lock("portrait-primary").catch(() => {}); }catch(e){} }
   lockPortrait();
@@ -1426,7 +1536,7 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
     $("sheet").classList.remove("sz","sm");
     if(html.startsWith("<h2>Zones</h2>")) $("sheet").classList.add("sz");
     else if(html.startsWith('<div class="mbar">')) $("sheet").classList.add("sm"); $("veil").classList.add("open"); updateStatus(); }
-  function closeSheet(){ alarmStop(); $("sheet").classList.remove("errsheet","alarm","sz","sm"); sheetOpen = false; $("veil").classList.remove("open"); $("sheet").innerHTML = ""; focusScan(); }
+  function closeSheet(){ alarmStop(); $("sheet").classList.remove("errsheet","alarm","sz","sm"); sheetOpen = false; $("veil").classList.remove("open"); $("sheet").innerHTML = ""; focusScan(); if(BUREAU) setTimeout(() => { if(!sheetOpen) renderBureau(); }, 0); }
   $("veil").addEventListener("click", e => { if(e.target.id === "veil") closeSheet(); });
   function confirmSheet(title, text, label, fn){
     openSheet('<h2>'+esc(title)+'</h2><p>'+esc(text)+'</p><div class="btnrow"><button class="btn" id="cNo">Garder</button><button class="btn danger" id="cYes">'+esc(label)+'</button></div>');
@@ -1686,6 +1796,7 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
   window.addEventListener("online",()=>{ try{ driveFlushQueue(); }catch(e){} });
 
   $("menuBtn").addEventListener("click", () => {
+    if(BUREAU){ closeSheet(); renderBureau(); return; }
     const I = {
       off:"M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z",
       xls:"M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z",
@@ -1737,7 +1848,7 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 56 du 17/11/2026</p>');
+      '<p class="mver">Version 57 du 17/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -1950,7 +2061,7 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
   }
 
   /* ===== Stock théorique du client (fichier articles) ===== */
-  const MASTER_KEY = "comptage-master";
+  const MASTER_KEY = BUREAU ? "comptage-bureau-master" : "comptage-master";
   let master = null, masterIdx = new Map();
   function normCode(c){ const s = String(c == null ? "" : c).trim().replace(/\s+/g, ""); if(/^\d+$/.test(s)) return s.replace(/^0+/, "") || "0"; return s.toUpperCase(); }
   function parseNum(v){ if(typeof v === "number") return v; const s = String(v == null ? "" : v).replace(/\s| |€/g, "").replace(",", "."); const n = parseFloat(s); return isNaN(n) ? null : n; }

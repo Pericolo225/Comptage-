@@ -535,6 +535,8 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
 .bw-src li{display:flex;align-items:center;gap:8px;border:1px solid #d5dde0;padding:6px 8px;font-size:13px}
 .bw-src li span{flex:1}.bw-src small{color:#666}
 .bw-x{border:0;background:none;color:#B3261E;font-size:16px;cursor:pointer;padding:4px 8px}
+.logon label.lgadm{flex-direction:row!important;align-items:center;gap:10px;font-size:15px;color:var(--ink)}
+.logon label.lgadm input{width:22px;height:22px;accent-color:var(--brand)}
 </style>
 </head>
 <body>
@@ -601,9 +603,10 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
   <h1>Log on</h1>
   <p>Identification de l’inventoriste</p>
   <label>Nom de l’inventoriste<input id="lgName" autocomplete="off" autocapitalize="words" placeholder="Prénom et nom"></label>
-  <label>Code PIN (4 à 6 chiffres)<input id="lgPin" type="password" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="••••"></label>
-  <label id="lgPin2L" hidden>Nouvel inventoriste : confirme le PIN<input id="lgPin2" type="password" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="••••"></label>
   <label>Matricule / badge (facultatif)<input id="lgBadge" autocomplete="off" inputmode="text" placeholder="ex. 20297013"></label>
+  <label class="lgadm"><input id="lgAdm" type="checkbox"> Connexion administrateur</label>
+  <label id="lgPinL" hidden>Code PIN administrateur (4 à 6 chiffres)<input id="lgPin" type="password" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="••••"></label>
+  <label id="lgPin2L" hidden>Premier administrateur : confirme le PIN<input id="lgPin2" type="password" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="••••"></label>
   <div class="lerr" id="lgErr"></div>
   <button class="lgo" id="lgGo">Log on</button>
   <div class="lmeta" id="lgMeta"></div>
@@ -1083,44 +1086,60 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
     try{ const h = await crypto.subtle.digest("SHA-256", d); return [...new Uint8Array(h)].map(b => b.toString(16).padStart(2,"0")).join(""); }
     catch(e){ let x = 0; for(const c of salt + "|" + pin) x = (x * 31 + c.charCodeAt(0)) >>> 0; return "w" + x.toString(16); }
   }
-  const isAdmin = () => { const u = loadUsers()[ukey(state.counter || "")]; return !!(u && u.admin); };
+  const isAdmin = () => !!(state.loggedIn && state.adminSession);
+  const adminCount = () => Object.values(loadUsers()).filter(u => u.admin).length;
   let lgTries = 0;
   async function doLogon(){
-    const n = $("lgName").value.trim().replace(/\s+/g, " "), pin = $("lgPin").value.trim(), err = t => { beep(false); $("lgErr").textContent = t; };
+    const n = $("lgName").value.trim().replace(/\s+/g, " "), adm = $("lgAdm").checked, err = t => { beep(false); $("lgErr").textContent = t; };
     if(n.length < 2){ err("Indique ton nom."); $("lgName").focus(); return; }
-    if(!/^\d{4,6}$/.test(pin)){ err("Le PIN doit faire 4 à 6 chiffres."); $("lgPin").focus(); return; }
-    const users = loadUsers(), k = ukey(n), u = users[k];
-    if(u){
-      if(await pinHash(pin, u.salt) !== u.hash){ lgTries++; $("lgPin").value = ""; err("PIN incorrect" + (lgTries >= 3 ? " (" + lgTries + " essais). Le responsable peut réinitialiser ton PIN." : ".")); $("lgPin").focus(); return; }
-    } else {
-      if($("lgPin2L").hidden){ $("lgPin2L").hidden = false; $("lgErr").textContent = ""; $("lgPin2").focus(); return; }
-      if($("lgPin2").value.trim() !== pin){ $("lgPin2").value = ""; err("Les deux PIN ne correspondent pas."); $("lgPin2").focus(); return; }
-      const salt = Math.random().toString(36).slice(2, 12), first = !Object.keys(users).length;
-      users[k] = {name: n, salt, hash: await pinHash(pin, salt), admin: first, created: new Date().toISOString()};
-      saveUsers(users);
-      logAct(first ? "Création inventoriste (responsable)" : "Création inventoriste", "", n, "", "");
+    let name = n;
+    if(adm){
+      const pin = $("lgPin").value.trim();
+      if(!/^\d{4,6}$/.test(pin)){ err("Le PIN doit faire 4 à 6 chiffres."); $("lgPin").focus(); return; }
+      const users = loadUsers(), k = ukey(n), u = users[k];
+      if(u && u.admin){
+        if(await pinHash(pin, u.salt) !== u.hash){ lgTries++; $("lgPin").value = ""; err("PIN incorrect" + (lgTries >= 3 ? " (" + lgTries + " essais)." : ".")); $("lgPin").focus(); return; }
+        name = u.name;
+      } else if(!adminCount()){
+        if($("lgPin2L").hidden){ $("lgPin2L").hidden = false; $("lgErr").textContent = ""; $("lgPin2").focus(); return; }
+        if($("lgPin2").value.trim() !== pin){ $("lgPin2").value = ""; err("Les deux PIN ne correspondent pas."); $("lgPin2").focus(); return; }
+        const salt = Math.random().toString(36).slice(2, 12);
+        users[k] = {name: n, salt, hash: await pinHash(pin, salt), admin: true, created: new Date().toISOString()};
+        saveUsers(users); logAct("Création administrateur", "", n, "", "");
+      } else { err("Ce nom n’est pas administrateur sur ce terminal. Un administrateur peut l’ajouter (Menu › Administrateurs)."); return; }
     }
     lgTries = 0;
-    state.counter = (u && u.name) || n; state.badge = $("lgBadge").value.trim(); state.loggedIn = true; state.sessionStart = new Date().toISOString();
-    logAct("Log on", "", state.badge, "", ""); save(); render();
-    $("lgPin").value = ""; $("lgPin2").value = ""; $("lgPin2L").hidden = true;
+    state.counter = name; state.badge = $("lgBadge").value.trim(); state.loggedIn = true; state.adminSession = adm; state.sessionStart = new Date().toISOString();
+    logAct(adm ? "Log on administrateur" : "Log on", "", state.badge, "", ""); save(); render();
+    $("lgPin").value = ""; $("lgPin2").value = ""; $("lgPin2L").hidden = true; $("lgAdm").checked = false; $("lgPinL").hidden = true;
     $("logon").classList.remove("on"); beep(true);
-    flash("Bonjour " + state.counter + " : scanne l’étiquette de zone.", "zone"); focusScan();
+    flash("Bonjour " + state.counter + (adm ? " (administrateur)" : "") + " : scanne l’étiquette de zone.", "zone"); focusScan();
   }
   $("lgGo").addEventListener("click", doLogon);
+  $("lgAdm").addEventListener("change", () => { $("lgPinL").hidden = !$("lgAdm").checked; $("lgPin2L").hidden = true; $("lgErr").textContent = ""; if($("lgAdm").checked) $("lgPin").focus(); });
   $("lgName").addEventListener("input", () => { $("lgPin2L").hidden = true; $("lgPin2").value = ""; });
-  ["lgName","lgPin","lgPin2","lgBadge"].forEach(id => $(id).addEventListener("keydown", e => { e.stopPropagation(); if(e.key === "Enter"){ e.preventDefault(); if(id === "lgName") $("lgPin").focus(); else doLogon(); } }));
+  ["lgName","lgPin","lgPin2","lgBadge"].forEach(id => $(id).addEventListener("keydown", e => { e.stopPropagation(); if(e.key === "Enter"){ e.preventDefault(); doLogon(); } }));
   function usersSheet(){
     const users = loadUsers(), me = ukey(state.counter || "");
-    const items = Object.entries(users).sort((a,b) => a[1].name.localeCompare(b[1].name)).map(([k,u]) =>
-      '<div class="zitem"><span class="zn" style="font-size:17px">'+esc(u.name)+'</span><span class="zs">'+(u.admin ? 'Responsable' : 'Inventoriste')+'</span>'+
-      (k === me ? '' : '<div class="btnrow"><button class="btn" data-rs="'+esc(k)+'">Réinitialiser le PIN</button>'+(u.admin ? '' : '<button class="btn" data-ad="'+esc(k)+'">Nommer responsable</button>')+'</div>')+'</div>').join("");
-    openSheet('<h2>Inventoristes</h2><p>Les PIN sont enregistrés sur ce terminal. Réinitialiser un PIN : l’inventoriste en choisira un nouveau à son prochain log on.</p>'+
-      '<div class="zlist">'+(items || '<p>Aucun inventoriste.</p>')+'</div><div class="btnrow"><button class="btn" id="uNo">Fermer</button></div>');
+    const admins = Object.entries(users).filter(([, u]) => u.admin).sort((a, b) => a[1].name.localeCompare(b[1].name));
+    openSheet('<h2>Administrateurs</h2><p>Les inventoristes se connectent avec leur seul nom. Le PIN ne sert qu’aux administrateurs (suppression des données en ligne, gestion des accès). Les PIN sont enregistrés sur ce terminal.</p>'+
+      '<div class="zlist">'+admins.map(([k, u]) => '<div class="zitem"><span class="zn" style="font-size:17px">'+esc(u.name)+'</span><span class="zs">'+(k === me ? 'Connecté' : 'Administrateur')+'</span>'+
+        (k === me ? '' : '<div class="btnrow"><button class="btn" data-rm="'+esc(k)+'">Retirer</button></div>')+'</div>').join("")+'</div>'+
+      '<h3 style="margin:8px 0 0">Ajouter un administrateur</h3>'+
+      '<label>Nom<input id="uNm" autocomplete="off"></label><label>PIN (4 à 6 chiffres)<input id="uPin" type="password" inputmode="numeric" maxlength="6"></label>'+
+      '<div class="btnrow"><button class="btn primary" id="uAdd">Ajouter</button><button class="btn" id="uNo">Fermer</button></div>');
+    $("sheet").querySelectorAll("input").forEach(x => x.addEventListener("keydown", e => e.stopPropagation()));
     $("uNo").onclick = closeSheet;
-    $("sheet").querySelectorAll("[data-rs]").forEach(b => b.onclick = () => { const u = loadUsers(), k = b.dataset.rs, nm = u[k] && u[k].name; delete u[k]; saveUsers(u); logAct("PIN réinitialisé", "", nm || k, "", ""); save(); usersSheet(); flash("PIN de " + nm + " réinitialisé.", "ok"); });
-    $("sheet").querySelectorAll("[data-ad]").forEach(b => b.onclick = () => { const u = loadUsers(); if(u[b.dataset.ad]){ u[b.dataset.ad].admin = true; saveUsers(u); } usersSheet(); });
+    $("uAdd").onclick = async () => {
+      const n = $("uNm").value.trim().replace(/\s+/g, " "), pin = $("uPin").value.trim();
+      if(n.length < 2 || !/^\d{4,6}$/.test(pin)){ beep(false); flash("Nom et PIN de 4 à 6 chiffres requis.", "bad"); return; }
+      const u = loadUsers(), salt = Math.random().toString(36).slice(2, 12);
+      u[ukey(n)] = {name: n, salt, hash: await pinHash(pin, salt), admin: true, created: new Date().toISOString()}; saveUsers(u);
+      logAct("Ajout administrateur", "", n, "", ""); save(); flash(n + " est administrateur.", "ok"); usersSheet();
+    };
+    $("sheet").querySelectorAll("[data-rm]").forEach(b => b.onclick = () => { const u = loadUsers(), nm = u[b.dataset.rm] && u[b.dataset.rm].name; delete u[b.dataset.rm]; saveUsers(u); logAct("Retrait administrateur", "", nm || "", "", ""); save(); usersSheet(); });
   }
+
   /* ===== Sauvegarde serveur automatique (Firebase) ===== */
   const BK_KEY = "comptage-bk-last", bkCode = () => "K" + deviceId.slice(0, 5).toUpperCase();
   const BK = {timer: null, running: false, err: "", last: (() => { try{ return parseInt(localStorage.getItem(BK_KEY), 10) || 0; }catch(e){ return 0; } })()};
@@ -1555,7 +1574,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
       '<p>Les comptages restent enregistrés sur le terminal. Le prochain inventoriste devra se connecter.</p>'+
       '<div class="btnrow"><button class="btn" id="loNo">Annuler</button><button class="btn logoff" id="loOk">LOG OFF</button></div>');
     $("loNo").onclick = closeSheet;
-    $("loOk").onclick = () => { logAct("Log off", "", state.badge || "", q, ""); state.loggedIn = false; save(); closeSheet(); showLogon(); };
+    $("loOk").onclick = () => { logAct("Log off", "", state.badge || "", q, ""); state.loggedIn = false; state.adminSession = false; save(); closeSheet(); showLogon(); };
   }
   if(BUREAU) setTimeout(bureauBoot, 0); else if(!state.loggedIn) showLogon();
   /* Écran toujours en portrait normal (jamais retourné à 180°) */
@@ -1893,7 +1912,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
       row("xMerge", "merge", "Fusionner un export", "Depuis un autre téléphone", "red")+
       row("xArch", "arch", "Missions archivées", String(loadArch().length))+
       row("xScan", "beep", "Scanner et terminal", "Réglage DataWedge, épinglage, écran allumé")+
-      (isAdmin() ? row("xUsers", "team", "Inventoristes", "PIN et responsables") : '')+
+      (isAdmin() ? row("xUsers", "team", "Administrateurs", "Accès par PIN") : '')+
       '<div class="msec">Réglages</div>'+
       '<label class="mchk"><input id="mhold" type="checkbox"'+(state.hold === false ? '' : ' checked')+'><span>Appui long pour fermer, annuler et corriger</span></label>'+
       '<label class="mchk"><input id="mv" type="checkbox"'+(state.confirm === false ? '' : ' checked')+'><span>Valider les codes inconnus du fichier client</span></label>'+
@@ -1905,7 +1924,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 60 du 17/11/2026</p>');
+      '<p class="mver">Version 61 du 17/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -1953,7 +1972,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
   }
 
   /* Missions: archive instead of delete */
-  function settingsOf(s){ return {prefix:s.prefix, counter:s.counter, confirm:s.confirm, check:s.check, autoBackup:s.autoBackup, bigQty:s.bigQty, hold:s.hold, loggedIn:s.loggedIn, badge:s.badge, sessionStart:s.sessionStart, backup:s.backup, wake:s.wake, company:s.company}; }
+  function settingsOf(s){ return {prefix:s.prefix, counter:s.counter, confirm:s.confirm, check:s.check, autoBackup:s.autoBackup, bigQty:s.bigQty, hold:s.hold, loggedIn:s.loggedIn, adminSession:s.adminSession, badge:s.badge, sessionStart:s.sessionStart, backup:s.backup, wake:s.wake, company:s.company}; }
   function archiveCurrent(){
     if(!state.lines.length && !(state.log||[]).length) return true;
     const a = loadArch();
@@ -2553,7 +2572,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
   /* Suppression en ligne : réservée au responsable, mission clôturée partout, équipe exportée, PIN + code */
   async function deleteGuard(){
     const block = (t, extra) => { beep(false); openSheet('<h2>Suppression impossible</h2>'+t+(extra || '')+'<div class="btnrow"><button class="btn" id="dgNo">Fermer</button></div>'); $("dgNo").onclick = () => teamSheet(); };
-    if(!isAdmin()){ block('<p>Seul le <b>responsable</b> de la mission peut supprimer les données en ligne. Les autres terminaux ne peuvent pas effacer le travail de l’équipe.</p>'); return; }
+    if(!isAdmin()){ block('<p>Seul un <b>administrateur</b> peut supprimer les données en ligne : fais log off puis log on en cochant « Connexion administrateur ».</p>'); return; }
     if(!state.finished){ block('<p>Clôture d’abord la mission sur ce terminal (Menu › Clôturer la mission).</p>'); return; }
     flash("Vérification de l’équipe…", "");
     let devs = [];
@@ -2564,7 +2583,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
     if(!state.teamExportedAt){ block('<p>Fais d’abord <b>« Exporter toute l’équipe »</b> avec du réseau : c’est la seule copie complète une fois les données en ligne supprimées.</p>'); return; }
     openSheet('<h2>Supprimer les données en ligne ?</h2><div class="expst no">Action définitive : tous les scans de la mission '+esc(state.team.code)+' seront effacés du serveur, pour tous les terminaux.</div>'+
       '<p>Export équipe fait le '+new Date(state.teamExportedAt).toLocaleString("fr-FR")+'. Les comptages restent sur chaque terminal et dans les fichiers exportés.</p>'+
-      '<label>Ton PIN de responsable<input id="dgPin" type="password" inputmode="numeric" maxlength="6"></label>'+
+      '<label>Ton PIN administrateur<input id="dgPin" type="password" inputmode="numeric" maxlength="6"></label>'+
       '<label>Recopie le code de la mission ('+esc(state.team.code)+')<input id="dgCode" autocomplete="off" autocapitalize="characters"></label>'+
       '<div class="btnrow"><button class="btn" id="dgNo">Annuler</button><button class="btn danger" id="dgOk">Supprimer définitivement</button></div>');
     $("sheet").classList.add("errsheet");
@@ -2620,7 +2639,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
       '<div class="btnrow"><button class="btn primary" id="tExp">Exporter toute l’équipe (Excel)</button></div>'+
       '<div class="btnrow"><button class="btn" id="tSync">Resynchroniser</button><button class="btn" id="tLeave">Quitter l’équipe</button></div>'+
       '<p style="font-size:14px">Après remise du rapport au client, supprime les données en ligne : elles restent sur les téléphones et dans tes exports.</p>'+
-      (isAdmin() ? '<div class="btnrow"><button class="btn danger" id="tDel">Supprimer les données en ligne (responsable)</button></div>' : '')+
+      (isAdmin() ? '<div class="btnrow"><button class="btn danger" id="tDel">Supprimer les données en ligne (administrateur)</button></div>' : '')+
       '<div class="btnrow"><button class="btn" id="tBack">Retour</button></div>');
     $("tExp").onclick = exportTeam;
     $("tSync").onclick = () => { lastErr = ""; flash("Resynchronisation…", ""); reconcile().then(() => { flash("Resynchronisation faite.", "ok"); teamSheet(); }).catch(e => flash(errMsg(e), "bad")); };

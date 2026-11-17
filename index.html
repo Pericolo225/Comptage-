@@ -1087,7 +1087,7 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
     $("sheet").querySelectorAll("[data-ad]").forEach(b => b.onclick = () => { const u = loadUsers(); if(u[b.dataset.ad]){ u[b.dataset.ad].admin = true; saveUsers(u); } usersSheet(); });
   }
   /* ===== Sauvegarde serveur automatique (Firebase) ===== */
-  const BK_KEY = "comptage-bk-last", bkCode = () => "BK-" + deviceId.toUpperCase();
+  const BK_KEY = "comptage-bk-last", bkCode = () => "K" + deviceId.slice(0, 5).toUpperCase();
   const BK = {timer: null, running: false, err: "", last: (() => { try{ return parseInt(localStorage.getItem(BK_KEY), 10) || 0; }catch(e){ return 0; } })()};
   const bkOn = () => state.backup !== false;
   function scheduleBackup(delay){ if(!bkOn()) return; clearTimeout(BK.timer); BK.timer = setTimeout(runBackup, delay == null ? 15000 : delay); }
@@ -1097,9 +1097,14 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
     BK.running = true;
     try{
       await fbInit();
-      const json = JSON.stringify(state);
+      const json = JSON.stringify(state), mdoc = db.collection("missions").doc(bkCode());
+      if(!BK.parentOk){
+        const pd = await mdoc.get({source: "server"});
+        if(!pd.exists) await mdoc.set({createdBy: fbUser.uid, kind: "backup", at: new Date().toISOString()});
+        BK.parentOk = true;
+      }
       if(json.length > 900000) throw new Error("Mission trop volumineuse pour la sauvegarde serveur : utilise l’export Excel.");
-      await db.collection("missions").doc(bkCode()).collection("devices").doc(deviceId).set({who: state.counter || "", lines: state.lines.length, qty: sum(state.lines), at: new Date().toISOString(), mission: state.mission || "", backup: json});
+      await mdoc.collection("devices").doc("backup").set({who: state.counter || "", lines: state.lines.length, qty: sum(state.lines), at: new Date().toISOString(), mission: state.mission || "", backup: json});
       BK.last = Date.now(); BK.err = ""; try{ localStorage.setItem(BK_KEY, String(BK.last)); }catch(e){}
     }catch(e){ BK.err = e && e.message && /volumineuse/.test(e.message) ? e.message : errMsg(e); }
     BK.running = false;
@@ -1114,7 +1119,7 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
       '<p style="text-align:center">'+esc(bkStatus())+'</p>'+
       '<label class="chk"><input id="bkOn" type="checkbox"'+(bkOn() ? ' checked' : '')+'> Sauvegarde automatique activée</label>'+
       '<div class="btnrow"><button class="btn primary" id="bkNow">Sauvegarder maintenant</button></div>'+
-      '<label>Restaurer une sauvegarde (code d’un autre terminal)<input id="bkCode" placeholder="BK-XXXXXXXX" autocomplete="off" autocapitalize="characters"></label>'+
+      '<label>Restaurer une sauvegarde (code d’un autre terminal)<input id="bkCode" placeholder="KXXXXX" autocomplete="off" autocapitalize="characters"></label>'+
       '<div class="btnrow"><button class="btn" id="bkRes">Restaurer</button><button class="btn" id="bkNo">Fermer</button></div>');
     $("bkNo").onclick = closeSheet;
     $("bkOn").onchange = () => { state.backup = $("bkOn").checked; save(); if(bkOn()) scheduleBackup(500); };
@@ -1124,10 +1129,10 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
   }
   async function restoreBackup(code){
     code = String(code || "").trim().toUpperCase().replace(/\s+/g, "");
-    if(!/^BK-[A-Z0-9]{4,}$/.test(code)){ flash("Code invalide : il commence par BK-.", "bad"); return; }
+    if(!/^K[A-Z0-9]{5}$/.test(code)){ flash("Code invalide : 6 caractères commençant par K.", "bad"); return; }
     flash("Recherche de la sauvegarde…", "");
     let d;
-    try{ await fbInit(); d = await db.collection("missions").doc(code).collection("devices").doc(code.slice(3).toLowerCase()).get({source: "server"}); }
+    try{ await fbInit(); d = await db.collection("missions").doc(code).collection("devices").doc("backup").get({source: "server"}); }
     catch(e){ flash("Restauration impossible : " + errMsg(e), "bad"); return; }
     if(!d.exists || !d.data().backup){ flash("Aucune sauvegarde pour " + code + ".", "bad"); return; }
     const b = d.data();
@@ -1587,7 +1592,7 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 53 du 17/11/2026</p>');
+      '<p class="mver">Version 54 du 17/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

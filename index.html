@@ -628,7 +628,7 @@ body:not(.control) .ctrlsrc{display:none}
   <label>Matricule / badge (facultatif)<input id="lgBadge" autocomplete="off" inputmode="text" placeholder="ex. 20297013"></label>
   <label class="lgadm"><input id="lgAdm" type="checkbox"> Connexion administrateur</label>
   <label id="lgPinL" hidden>Code PIN administrateur (4 à 6 chiffres)<input id="lgPin" type="password" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="••••"></label>
-  <p id="lgNewHint" hidden style="margin:6px 14px 0;font-size:13px;color:var(--muted)">Administrateur : laisse le code inventaire vide pour <b>créer un nouvel inventaire</b> ; un code sera généré pour les autres terminaux.</p>
+  <p id="lgNewHint" hidden style="margin:6px 14px 0;font-size:13px;color:var(--muted)">Administrateur : laisse le code vide pour <b>créer un code</b>. Si ce terminal a déjà un inventaire en cours, il le garde et reçoit le code ; sinon un nouvel inventaire est créé.</p>
   <label id="lgPin2L" hidden>Premier administrateur : confirme le PIN<input id="lgPin2" type="password" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="••••"></label>
   <div class="lerr" id="lgErr"></div>
   <button class="lgo" id="lgGo">Log on</button>
@@ -1120,21 +1120,22 @@ body:not(.control) .ctrlsrc{display:none}
     const cur = state.team ? state.team.code : "";
     if(!code){
       if(!adm) return err("Saisis le code inventaire donné par l’administrateur.");
-      if(state.lines.length && !state.finished) return err("Ce terminal a un inventaire en cours ("+fmtLines(state.lines.length)+"). Clôture-le ou fais « Nouvelle mission » avant d’en créer un autre, ou saisis son code.");
-      if(!navigator.onLine) return err("Pas de réseau : impossible de créer un inventaire.");
+      /* Inventaire en cours sur ce terminal : l’administrateur entre toujours ; il le garde (et lui donne un code s’il n’en a pas) */
+      if(state.lines.length && !state.finished && cur){ if(navigator.onLine) fbInit().then(() => { startListeners(); runSync(); }).catch(() => {}); return true; }
+      const keepCurrent = state.lines.length && !state.finished;
+      if(!navigator.onLine){ if(keepCurrent){ flash("Hors ligne : connecté sans code inventaire. Crée le code dès que le réseau revient (log off puis log on).", "bad"); return true; } return err("Pas de réseau : impossible de créer un inventaire."); }
       await fbInit();
       let tries = 0; do{ code = genCode(); tries++; }while((code[0] === "K" || (await mref(code).get({source:"server"})).exists) && tries < 12);
       await mref(code).set({name: state.mission || "Inventaire", createdAt: new Date().toISOString(), createdBy: fbUser.uid});
-      if(state.lines.length) archiveCurrent();
-      const keepS = settingsOf(state); state = Object.assign(blank(), keepS); loadMaster();
+      if(!keepCurrent){ if(state.lines.length) archiveCurrent(); const keepS = settingsOf(state); state = Object.assign(blank(), keepS); loadMaster(); }
       state.team = {code, joinedAt: new Date().toISOString()}; state.sync = {lines:{}, zones:{}, logN:0}; lastErr = ""; lastDevW = 0;
       save(); startListeners(); runSync();
-      setTimeout(() => openSheet('<h2>Nouvel inventaire créé</h2><p>Code inventaire à donner aux inventoristes :</p><p class="num" style="font-size:42px;font-weight:700;text-align:center;letter-spacing:.12em;color:var(--ink);margin:6px 0">'+code+'</p><p>Chaque terminal saisit ce code au log on : tous les comptages sont synchronisés et contrôlables depuis n’importe quel terminal. Sur PC, ce code donne aussi le rapport et le suivi en direct.</p><div class="btnrow"><button class="btn primary" id="niOk">Compris</button></div>') || ($("niOk").onclick = closeSheet), 300);
+      setTimeout(() => openSheet('<h2>'+(keepCurrent ? 'Code créé pour l’inventaire en cours' : 'Nouvel inventaire créé')+'</h2><p>Code inventaire à donner aux inventoristes :</p><p class="num" style="font-size:42px;font-weight:700;text-align:center;letter-spacing:.12em;color:var(--ink);margin:6px 0">'+code+'</p><p>Chaque terminal saisit ce code au log on : tous les comptages sont synchronisés et contrôlables depuis n’importe quel terminal. Sur PC, ce code donne aussi le rapport et le suivi en direct.</p><div class="btnrow"><button class="btn primary" id="niOk">Compris</button></div>') || ($("niOk").onclick = closeSheet), 300);
       return true;
     }
     if(code.length !== 6) return err("Le code inventaire contient 6 caractères.");
     if(code === cur){ if(navigator.onLine){ fbInit().then(() => { startListeners(); runSync(); }).catch(() => {}); } return true; }
-    if(state.lines.length && cur && !state.finished) return err("Ce terminal compte encore l’inventaire " + cur + " (" + fmtLines(state.lines.length) + "). L’administrateur doit d’abord le clôturer ou faire « Nouvelle mission ».");
+    if(state.lines.length && cur && !state.finished) return err("Ce terminal compte encore l’inventaire " + cur + " (" + fmtLines(state.lines.length) + "). Saisis le code " + cur + ", ou l’administrateur doit d’abord clôturer ou faire « Nouvelle mission ».");
     if(!navigator.onLine) return err("Pas de réseau : impossible de vérifier le code " + code + ".");
     await fbInit();
     const d = await mref(code).get({source: "server"});
@@ -2259,7 +2260,7 @@ body:not(.control) .ctrlsrc{display:none}
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 67 du 17/11/2026</p>');
+      '<p class="mver">Version 68 du 17/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

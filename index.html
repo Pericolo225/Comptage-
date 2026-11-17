@@ -537,6 +537,23 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
 .bw-x{border:0;background:none;color:#B3261E;font-size:16px;cursor:pointer;padding:4px 8px}
 .logon label.lgadm{flex-direction:row!important;align-items:center;gap:10px;font-size:15px;color:var(--ink)}
 .logon label.lgadm input{width:22px;height:22px;accent-color:var(--brand)}
+
+.head .prog{margin-left:auto;margin-right:62px;font-weight:700;font-style:normal}
+.sgb{border:1px solid var(--line);padding:10px;display:flex;flex-direction:column;gap:8px}
+.sgb h3{margin:0}
+.sgc{width:100%;height:150px;background:#fff;border:1px dashed #8a9599;touch-action:none;border-radius:2px}
+.bw-tabs{display:flex;border-bottom:1px solid #e4e8ea}
+.bw-tabs button{flex:1;border:0;background:#f4f6f7;padding:12px;font:inherit;font-size:14px;font-weight:600;color:#555;cursor:pointer;border-bottom:3px solid transparent}
+.bw-tabs button.on{background:#fff;color:#0F4C5C;border-bottom-color:#E8A33D}
+.bw-live{max-width:1100px;margin:0 auto}
+.lv-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
+.lv-kpis div{background:#fff;border-top:3px solid #0F4C5C;padding:12px 14px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.lv-kpis b{display:block;font-size:26px;color:#0F4C5C}.lv-kpis span{font-size:12px;color:#555}
+.lv-bar{height:10px;background:#d8e1e4;margin:0 0 14px}.lv-bar i{display:block;height:100%;background:#E8A33D}
+.lv-t{width:100%;border-collapse:collapse;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.08);font-size:14px}
+.lv-t th{background:#E2EEF0;text-align:left;padding:8px 10px;font-size:12px}.lv-t td{padding:8px 10px;border-top:1px solid #e6eaec;vertical-align:top}.lv-t .r{text-align:right}
+.lv-t small{color:#777}.lv-s{padding:2px 8px;font-size:12px;font-weight:600}.lv-s.on{background:#DDF1E3;color:#1F6E3A}.lv-s.idle{background:#FCEBD3;color:#8A5A12}.lv-s.fin{background:#E2E6E8;color:#444}
+.lv-todo{background:#fff;padding:10px 12px;margin-top:12px;font-size:14px}
 </style>
 </head>
 <body>
@@ -550,7 +567,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
       <div class="tl"><b>Comptage</b><span id="who"></span></div>
       <button class="tb" id="zonesBtn">Zones</button><button class="tb" id="menuBtn">Menu</button>
     </div>
-    <div class="status" id="status"><span class="dot"></span><span id="statusTxt">Prêt à scanner</span><button class="pph" id="pph" title="Pièces par heure, pauses et temps morts compris"></button></div>
+    <div class="status" id="status"><span class="dot"></span><span id="statusTxt">Prêt à scanner</span><span class="prog" id="prog"></span><button class="pph" id="pph" title="Pièces par heure, pauses et temps morts compris"></button></div>
     <div class="grid3">
       <button class="cell zcell empty" id="tagBtn" aria-label="Choisir une zone"><small>ZONE</small><strong class="num" id="zoneName">—</strong></button>
       <div class="cell"><small>QUANTITÉ</small><strong class="num" id="zoneQty">0</strong></div>
@@ -773,6 +790,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
       ).join("");
     }
     $("pph").textContent = "PPH " + fmtPph(pphMission(state));
+    try{ const pr = planProgress(); $("prog").textContent = pr ? "Zones " + pr.done + "/" + pr.total : ""; }catch(e){}
     try{ renderTeam(); }catch(e){}
     document.body.classList.toggle("nohold", state.hold === false);
     $("who").textContent = state.counter || "";
@@ -1105,7 +1123,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
         if($("lgPin2").value.trim() !== pin){ $("lgPin2").value = ""; err("Les deux PIN ne correspondent pas."); $("lgPin2").focus(); return; }
         const salt = Math.random().toString(36).slice(2, 12);
         users[k] = {name: n, salt, hash: await pinHash(pin, salt), admin: true, created: new Date().toISOString()};
-        saveUsers(users); logAct("Création administrateur", "", n, "", "");
+        saveUsers(users); logAct("Création administrateur", "", n, "", ""); adminsPush({add: {k, name: n, salt, hash: users[k].hash}});
       } else { err("Ce nom n’est pas administrateur sur ce terminal. Un administrateur peut l’ajouter (Menu › Administrateurs)."); return; }
     }
     lgTries = 0;
@@ -1125,7 +1143,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
     if(!admins.length){
       beep(false);
       openSheet('<h2>'+esc(label)+'</h2><div class="expst no">Code administrateur requis, mais aucun administrateur n’est enregistré sur ce terminal.</div>'+
-        '<p>Pour en créer un : Menu › Log off, puis log on en cochant <b>« Connexion administrateur »</b> et en choisissant un PIN. Fais-le une fois sur chaque terminal, avec le même PIN.</p>'+
+        '<p>Pour en créer un : Menu › Log off, puis log on en cochant <b>« Connexion administrateur »</b> et en choisissant un PIN. Avec du réseau, les administrateurs créés sur un autre terminal arrivent automatiquement ici.</p>'+
         '<div class="btnrow"><button class="btn" id="raNo">Fermer</button></div>');
       $("raNo").onclick = closeSheet; return;
     }
@@ -1144,7 +1162,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
   function usersSheet(){
     const users = loadUsers(), me = ukey(state.counter || "");
     const admins = Object.entries(users).filter(([, u]) => u.admin).sort((a, b) => a[1].name.localeCompare(b[1].name));
-    openSheet('<h2>Administrateurs</h2><p>Les inventoristes se connectent avec leur seul nom. Le PIN ne sert qu’aux administrateurs (suppression des données en ligne, gestion des accès). Les PIN sont enregistrés sur ce terminal.</p>'+
+    openSheet('<h2>Administrateurs</h2><p>Les inventoristes se connectent avec leur seul nom. Le PIN ne sert qu’aux administrateurs (suppression des données en ligne, gestion des accès). Les administrateurs sont partagés entre tous les terminaux par le serveur (il faut du réseau pour qu’un ajout ou un retrait se propage).</p>'+
       '<div class="zlist">'+admins.map(([k, u]) => '<div class="zitem"><span class="zn" style="font-size:17px">'+esc(u.name)+'</span><span class="zs">'+(k === me ? 'Connecté' : 'Administrateur')+'</span>'+
         (k === me ? '' : '<div class="btnrow"><button class="btn" data-rm="'+esc(k)+'">Retirer</button></div>')+'</div>').join("")+'</div>'+
       '<h3 style="margin:8px 0 0">Ajouter un administrateur</h3>'+
@@ -1157,9 +1175,10 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
       if(n.length < 2 || !/^\d{4,6}$/.test(pin)){ beep(false); flash("Nom et PIN de 4 à 6 chiffres requis.", "bad"); return; }
       const u = loadUsers(), salt = Math.random().toString(36).slice(2, 12);
       u[ukey(n)] = {name: n, salt, hash: await pinHash(pin, salt), admin: true, created: new Date().toISOString()}; saveUsers(u);
+      adminsPush({add: {k: ukey(n), name: n, salt, hash: u[ukey(n)].hash}});
       logAct("Ajout administrateur", "", n, "", ""); save(); flash(n + " est administrateur.", "ok"); usersSheet();
     };
-    $("sheet").querySelectorAll("[data-rm]").forEach(b => b.onclick = () => { const u = loadUsers(), nm = u[b.dataset.rm] && u[b.dataset.rm].name; delete u[b.dataset.rm]; saveUsers(u); logAct("Retrait administrateur", "", nm || "", "", ""); save(); usersSheet(); });
+    $("sheet").querySelectorAll("[data-rm]").forEach(b => b.onclick = () => { const u = loadUsers(), nm = u[b.dataset.rm] && u[b.dataset.rm].name; delete u[b.dataset.rm]; saveUsers(u); adminsPush({remove: b.dataset.rm}); logAct("Retrait administrateur", "", nm || "", "", ""); save(); usersSheet(); });
   }
 
   /* ===== Sauvegarde serveur automatique (Firebase) ===== */
@@ -1181,7 +1200,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
         BK.parentOk = true;
       }
       if(json.length > 900000) throw new Error("Mission trop volumineuse pour la sauvegarde serveur : utilise l’export Excel.");
-      const payload = {who: state.counter || "", lines: state.lines.length, qty: sum(state.lines), at: new Date().toISOString(), mission: state.mission || "", startedAt: state.startedAt || "", finished: state.finished || "", backup: json};
+      const payload = {who: state.counter || "", lines: state.lines.length, qty: sum(state.lines), at: new Date().toISOString(), zone: state.zone || "", pph: pphMission(state) || 0, done: (state.closed || []).slice(-500), plan: (state.plan || []).length, mission: state.mission || "", startedAt: state.startedAt || "", finished: state.finished || "", backup: json};
       /* « backup » = dernière mission du terminal ; « m… » = une copie par mission, jamais écrasée par la mission suivante */
       await Promise.all([mdoc.collection("devices").doc("backup").set(payload), mdoc.collection("devices").doc(bkMissionId()).set(payload)]);
       BK.last = Date.now(); BK.err = ""; try{ localStorage.setItem(BK_KEY, String(BK.last)); }catch(e){}
@@ -1276,6 +1295,8 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
     if(T) h += '<p class="tx">Sur '+num(rowsEc.length)+' références du stock théorique, '+num(okRefs)+' sont conformes et '+num(nMiss + nEx)+' présentent un écart ('+num(nMiss)+' en manque, '+num(nEx)+' en surplus)'+(T.unknown ? ', et '+num(T.unknown)+' code'+(T.unknown > 1 ? 's' : '')+' scanné'+(T.unknown > 1 ? 's sont' : ' est')+' absent'+(T.unknown > 1 ? 's' : '')+' du fichier article' : '')+'.'+(T.hasCost && T.vth ? ' L’écart de valeur représente '+pct((T.vct - T.vth) * 100 / T.vth)+' de la valeur théorique.' : '')+'</p>';
     if(estVal != null) h += '<p class="note">* Estimation : '+num(tot)+' articles × prix moyen d’achat HT de '+fmtEur(avg)+' communiqué par le client. Elle ne remplace pas une valorisation article par article.</p>';
     if(declared > 0 && (hasCost || estVal != null) && !(T && T.hasCost)){ const v = hasCost ? valCt : estVal, dv = v - declared; h += '<p class="tx">Écart avec la valeur de stock déclarée par le client : <b class="'+(dv < 0 ? 'neg' : 'pos')+'">'+fmtEur(dv)+'</b> ('+pct(dv * 100 / declared)+').</p>'; }
+    { const pl = state.plan || []; if(pl.length){ const dz = new Set(L.map(l => l.zone)), miss = pl.filter(z => !dz.has(z));
+      h += '<p class="tx">Plan de zones : <b>'+num(pl.length - miss.length)+' / '+num(pl.length)+'</b> zones prévues comptées.'+(miss.length ? ' <span class="neg">Zones prévues non comptées : '+esc(miss.join(", "))+'.</span>' : '')+'</p>'; } }
     /* 2. Méthodologie */
     if(R.method !== false) h += '<h2>2. Méthode de comptage</h2><ul class="mt">'+
       '<li>Le magasin est découpé en <b>'+num(zs.length)+' zones étiquetées</b> ; chaque zone est ouverte, comptée puis fermée par scan de son étiquette, ce qui empêche les doubles comptages.</li>'+
@@ -1316,8 +1337,10 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
     /* Observations */
     h += '<h2>'+sec+'. Observations et réserves</h2><div class="obs">'+(state.reportNotes ? esc(state.reportNotes).replace(/\n/g, "<br>") : 'Néant.')+'</div>';
     /* Validation */
-    h += '<div class="sig"><div><b>Pour le prestataire</b><span>'+esc(C.name || "")+'</span><span>Date :</span><span>Signature :</span></div>'+
-      '<div><b>Pour le client</b><span>Nom et qualité : '+esc(R.contact || "")+'</span><span>Date :</span><span>Signature, précédée de « Lu et approuvé » :</span></div></div>'+
+    const SG = state.signatures || {}, sgd = x => x && x.at ? new Date(x.at).toLocaleDateString("fr-FR") : "";
+    const sgImg = x => x && x.img ? '<img src="'+x.img+'" alt="signature" style="max-width:100%;height:22mm;object-fit:contain;align-self:flex-start">' : '<span style="height:16mm"></span>';
+    h += '<div class="sig"><div><b>Le responsable de l’inventaire</b><span>'+esc((SG.resp && SG.resp.name) || "")+(C.name ? ' — '+esc(C.name) : '')+'</span><span>Date : '+sgd(SG.resp)+'</span>'+sgImg(SG.resp)+'</div>'+
+      '<div><b>Le client</b><span>Nom et qualité : '+esc((SG.client && [SG.client.name, SG.client.role].filter(Boolean).join(", ")) || R.contact || "")+'</span><span>Date : '+sgd(SG.client)+'</span>'+sgImg(SG.client)+(SG.client && SG.client.img ? '<span style="font-size:9px;color:#555">Signé électroniquement, lu et approuvé</span>' : '<span>Signature, précédée de « Lu et approuvé » :</span>')+'</div></div>'+
       '<p class="note">Les quantités reflètent le stock physiquement présent et accessible au moment du comptage. ' + (parseInt(R.claimDays, 10) > 0 ? ' Le client dispose de ' + parseInt(R.claimDays, 10) + ' jour' + (parseInt(R.claimDays, 10) > 1 ? 's' : '') + ' après remise du rapport pour formuler une réserve écrite ; passé ce délai, l’inventaire est réputé accepté.' : '') + (R.annex !== false && master ? ' Le détail par désignation figure en annexe ; le détail par code-barres et par zone figure dans le fichier Excel remis avec ce rapport.' : ' Le détail par code-barres et par zone figure dans le fichier Excel remis avec ce rapport.') + '</p>';
     /* Annexe : inventaire par désignation (sans codes-barres, présents dans l’Excel) */
     if(R.annex !== false && master){
@@ -1500,13 +1523,16 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
     const by = {}; state.lines.forEach(l => { (by[l.zone] = by[l.zone] || new Set()).add(l.device || "local"); });
     return Object.keys(by).filter(z => by[z].size > 1).sort();
   }
-  let bwPreviewDirty = false;
+  let bwPreviewDirty = false, bwTab = "rep";
   function renderBureau(msg){
     if(!BUREAU) return;
     const has = state.lines.length, C = state.company || {};
     $("bureau").innerHTML =
-      '<aside class="bw-side"><div class="bw-brand"><b>Rapport d’inventaire</b><span>Poste bureau</span></div>'+
-      '<section><h3>1. Données du comptage</h3><p>Charge <b>chaque terminal</b> de la mission avec son code K… (Menu › Sauvegarde serveur), ou un code d’équipe. Le rapport additionne tout.</p>'+
+      '<aside class="bw-side"><div class="bw-brand"><b>'+(bwTab === "live" ? 'Suivi en direct' : 'Rapport d’inventaire')+'</b><span>Poste bureau</span></div>'+
+      '<div class="bw-tabs"><button class="'+(bwTab !== "live" ? 'on' : '')+'" id="bwTR">Rapport</button><button class="'+(bwTab === "live" ? 'on' : '')+'" id="bwTL">Suivi en direct</button></div>'+
+      (bwTab === "live" ? '<section><h3>Terminaux suivis</h3><p>Code d’équipe ou codes K… des terminaux de la mission.</p><div class="bw-row"><input id="lvCode" placeholder="K51RJN" maxlength="6"><button class="btn primary" id="lvAdd">Suivre</button></div>'+
+        ((state.liveCodes || []).length ? '<ul class="bw-src">'+state.liveCodes.map(c => '<li><span><b>'+esc(c)+'</b></span><button class="bw-x" data-lrm="'+esc(c)+'">✕</button></li>').join("")+'</ul>' : '')+'</section>' : '')+
+      (bwTab === "live" ? '<div hidden>' : '<div>')+'<section><h3>1. Données du comptage</h3><p>Charge <b>chaque terminal</b> de la mission avec son code K… (Menu › Sauvegarde serveur), ou un code d’équipe. Le rapport additionne tout.</p>'+
         '<div class="bw-row"><input id="bwCode" placeholder="K51RJN" maxlength="6"><button class="btn primary" id="bwLoad">'+(has ? 'Ajouter' : 'Charger')+'</button></div>'+
         (msg ? '<p class="bw-msg">'+esc(msg)+'</p>' : '')+
         ((state.srcCodes || []).length ? '<ul class="bw-src">'+state.srcCodes.map(c => { const x = (state.srcInfo || {})[c] || {};
@@ -1519,12 +1545,16 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
         '<button class="btn" id="bwMaster"'+(has ? '' : ' disabled')+'>'+(master ? 'Voir / remplacer le fichier' : 'Charger le fichier du client')+'</button></section>'+
       '<section><h3>3. Informations du rapport</h3><p>'+infoCount()+' information'+(infoCount() > 1 ? 's' : '')+' renseignée'+(infoCount() > 1 ? 's' : '')+(C.name ? ' · prestataire : '+esc(C.name) : '')+'</p>'+
         '<button class="btn" id="bwInfo">Modifier les informations</button>'+
+        '<button class="btn" id="bwSig">Signatures ('+sigStatus()+')</button>'+
+        '<button class="btn" id="bwPlan">Plan de zones'+(planProgress() ? ' ('+planProgress().done+' / '+planProgress().total+')' : '')+'</button>'+
+        '<button class="btn" id="bwLbl">Étiquettes de zones</button>'+
         '<label>Observations et réserves<textarea id="bwObs" rows="4">'+esc(state.reportNotes || "")+'</textarea></label></section>'+
       '<section class="bw-act"><button class="btn primary" id="bwPrint"'+(has ? '' : ' disabled')+'>Imprimer / enregistrer en PDF</button>'+
         '<button class="btn" id="bwDl"'+(has ? '' : ' disabled')+'>Télécharger le rapport (HTML)</button>'+
         '<button class="btn" id="bwRef"'+(has ? '' : ' disabled')+'>Actualiser l’aperçu</button>'+
-        '<p class="bw-tip">Tu peux cliquer dans l’aperçu pour retoucher un texte avant d’imprimer. « Actualiser » efface ces retouches.</p></section></aside>'+
-      '<main class="bw-main"><div id="bwPrev" class="bw-prev">'+(has ? '' : '<div class="bw-empty">Charge une mission pour voir l’aperçu du rapport.</div>')+'</div></main>';
+        '<p class="bw-tip">Tu peux cliquer dans l’aperçu pour retoucher un texte avant d’imprimer. « Actualiser » efface ces retouches.</p></section></div></aside>'+
+      (bwTab === "live" ? '<main class="bw-main"><div id="bwLive" class="bw-live"></div></main>' :
+      '<main class="bw-main"><div id="bwPrev" class="bw-prev">'+(has ? '' : '<div class="bw-empty">Charge une mission pour voir l’aperçu du rapport.</div>')+'</div></main>');
     $("bureau").querySelectorAll("input,textarea").forEach(x => x.addEventListener("keydown", e => e.stopPropagation()));
     $("bwCode").addEventListener("keydown", e => { if(e.key === "Enter") bureauLoad($("bwCode").value, has); });
     $("bwLoad").onclick = () => bureauLoad($("bwCode").value, has);
@@ -1533,6 +1563,15 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
     $("bwMerge").onclick = () => pickMergeFile();
     $("bwMaster").onclick = () => masterSheet();
     $("bwInfo").onclick = () => infoSheet(false);
+    $("bwSig").onclick = () => sigSheet(); $("bwPlan").onclick = () => planSheet(); $("bwLbl").onclick = () => labelsSheet();
+    $("bwTR").onclick = () => { bwTab = "rep"; liveStop(); renderBureau(); };
+    $("bwTL").onclick = () => { bwTab = "live"; renderBureau(); liveStart(); };
+    if(bwTab === "live"){
+      const addLive = () => { const c = $("lvCode").value.trim().toUpperCase(); if(!/^[A-Z0-9]{6}$/.test(c)){ flash("Code de 6 caractères.", "bad"); return; } state.liveCodes = [...new Set((state.liveCodes || []).concat(c))]; save(); renderBureau(); liveStart(); };
+      $("lvAdd").onclick = addLive; $("lvCode").addEventListener("keydown", e => { if(e.key === "Enter") addLive(); });
+      $("bureau").querySelectorAll("[data-lrm]").forEach(b => b.onclick = () => { state.liveCodes = (state.liveCodes || []).filter(c => c !== b.dataset.lrm); save(); renderBureau(); liveStart(); });
+      renderLive(); return;
+    }
     $("bwObs").addEventListener("change", () => { state.reportNotes = $("bwObs").value.trim(); save(); bwPreview(); });
     $("bwRef").onclick = () => bwPreview();
     $("bwPrint").onclick = () => { state.reportNotes = $("bwObs").value.trim(); save();
@@ -1553,6 +1592,202 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
     const D = {lines: state.lines.slice(), log: (state.log || []).slice(), src: "local", devices: state.srcDevices || 1};
     $("bwPrev").innerHTML = '<style>'+REPORT_CSS+'</style>' + reportHTML(D);
     const rp = $("bwPrev").querySelector(".rp"); if(rp) rp.setAttribute("contenteditable", "true");
+  }
+  /* ===== Code 128 (jeu B) en SVG ===== */
+  const C128 = ["11011001100", "11001101100", "11001100110", "10010011000", "10010001100", "10001001100", "10011001000", "10011000100", "10001100100", "11001001000", "11001000100", "11000100100", "10110011100", "10011011100", "10011001110", "10111001100", "10011101100", "10011100110", "11001110010", "11001011100", "11001001110", "11011100100", "11001110100", "11101101110", "11101001100", "11100101100", "11100100110", "11101100100", "11100110100", "11100110010", "11011011000", "11011000110", "11000110110", "10100011000", "10001011000", "10001000110", "10110001000", "10001101000", "10001100010", "11010001000", "11000101000", "11000100010", "10110111000", "10110001110", "10001101110", "10111011000", "10111000110", "10001110110", "11101110110", "11010001110", "11000101110", "11011101000", "11011100010", "11011101110", "11101011000", "11101000110", "11100010110", "11101101000", "11101100010", "11100011010", "11101111010", "11001000010", "11110001010", "10100110000", "10100001100", "10010110000", "10010000110", "10000101100", "10000100110", "10110010000", "10110000100", "10011010000", "10011000010", "10000110100", "10000110010", "11000010010", "11001010000", "11110111010", "11000010100", "10001111010", "10100111100", "10010111100", "10010011110", "10111100100", "10011110100", "10011110010", "11110100100", "11110010100", "11110010010", "11011011110", "11011110110", "11110110110", "10101111000", "10100011110", "10001011110", "10111101000", "10111100010", "11110101000", "11110100010", "10111011110", "10111101110", "11101011110", "11110101110", "11010000100", "11010010000", "11010011100"];
+  function code128SVG(text, hMm){
+    const vals = [104]; for(const ch of String(text)){ const v = ch.charCodeAt(0) - 32; if(v < 0 || v > 94) continue; vals.push(v); }
+    let ck = 104; for(let i = 1; i < vals.length; i++) ck += i * vals[i]; vals.push(ck % 103);
+    const bits = vals.map(v => C128[v]).join("") + "1100011101011", q = 10, w = bits.length + q * 2;
+    let x = q, rects = "";
+    for(let i = 0; i < bits.length;){ if(bits[i] === "1"){ let k = i; while(bits[k] === "1") k++; rects += '<rect x="'+x+'" y="0" width="'+(k - i)+'" height="1"/>'; x += k - i; i = k; } else { x++; i++; } }
+    return '<svg viewBox="0 0 '+w+' 1" preserveAspectRatio="none" style="width:100%;height:'+(hMm || 14)+'mm;display:block" shape-rendering="crispEdges">'+rects+'</svg>';
+  }
+  function zoneRange(prefix, from, to, width){
+    const a = parseInt(from, 10), b = parseInt(to, 10), out = [];
+    if(!(a >= 0) || !(b >= a) || b - a > 999) return out;
+    for(let i = a; i <= b; i++) out.push((prefix || "Z") + String(i).padStart(width || 3, "0"));
+    return out;
+  }
+  function printHTML(html, title){
+    let r = $("report"); if(!r){ r = document.createElement("div"); r.id = "report"; document.body.appendChild(r); }
+    r.innerHTML = html; const t = document.title; document.title = title || t;
+    setTimeout(() => { window.print(); document.title = t; }, 120);
+  }
+  /* ===== Étiquettes de zones ===== */
+  function labelsSheet(){
+    const pl = state.plan || [], px = state.prefix || "Z";
+    openSheet('<h2>Étiquettes de zones</h2><p>Planche de codes-barres à imprimer sur papier adhésif A4. Chaque étiquette se scanne pour ouvrir sa zone.</p>'+
+      '<label>Préfixe<input id="lbP" value="'+esc(px)+'" maxlength="4" autocomplete="off"></label>'+
+      '<div class="btnrow"><label style="flex:1">De<input id="lbA" inputmode="numeric" value="1"></label><label style="flex:1">À<input id="lbB" inputmode="numeric" value="'+(pl.length || 40)+'"></label></div>'+
+      '<label>Format<select id="lbF"><option value="21">21 par page — 63,5 × 38,1 mm</option><option value="24">24 par page — 70 × 37 mm</option><option value="8">8 par page — grandes, 105 × 74 mm</option></select></label>'+
+      '<label class="chk"><input id="lbM" type="checkbox"'+(state.mission ? ' checked' : '')+'> Afficher le nom du client sur l’étiquette</label>'+
+      (pl.length ? '<div class="btnrow"><button class="btn" id="lbPlan">Imprimer le plan de zones ('+pl.length+' zones)</button></div>' : '')+
+      '<div class="btnrow"><button class="btn primary" id="lbGo">Imprimer / enregistrer en PDF</button></div><div class="btnrow"><button class="btn" id="lbNo">Fermer</button></div>');
+    $("sheet").querySelectorAll("input,select").forEach(x => x.addEventListener("keydown", e => e.stopPropagation()));
+    $("lbNo").onclick = () => BUREAU ? closeSheet() : $("menuBtn").click();
+    const make = list => {
+      const f = +$("lbF").value, showMis = $("lbM").checked; closeSheet();
+      const G = {21:{c:3, w:63.5, h:38.1, mt:15.15, ml:7.25, gx:2.5, bh:13, fs:20}, 24:{c:3, w:70, h:37, mt:4.5, ml:0, gx:0, bh:12, fs:20}, 8:{c:2, w:105, h:74, mt:0.5, ml:0, gx:0, bh:26, fs:40}}[f];
+      const mis = showMis ? esc(state.mission || "") : "";
+      let pages = "";
+      for(let i = 0; i < list.length; i += f){
+        pages += '<div class="lbpage" style="padding:'+G.mt+'mm 0 0 '+G.ml+'mm;grid-template-columns:repeat('+G.c+','+G.w+'mm);grid-auto-rows:'+G.h+'mm;column-gap:'+G.gx+'mm">'+
+          list.slice(i, i + f).map(z => '<div class="lb"><div class="lbz" style="font-size:'+G.fs+'pt">'+esc(z)+'</div>'+code128SVG(z, G.bh)+'<div class="lbm">'+mis+'</div></div>').join("")+'</div>';
+      }
+      const css = '<style>@page{size:A4;margin:0}.lbpage{width:210mm;height:297mm;box-sizing:border-box;display:grid;align-content:start;page-break-after:always;overflow:hidden}.lb{box-sizing:border-box;padding:2.5mm 6mm;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:1mm;overflow:hidden;font-family:Roboto,Arial,sans-serif}.lbz{font-weight:700;letter-spacing:.06em;line-height:1}.lb svg{fill:#000;max-width:58mm}.lbm{font-size:7pt;color:#444;height:3mm}</style>';
+      printHTML(css + pages, "Etiquettes zones " + (state.mission || ""));
+      logAct("Étiquettes de zones imprimées", "", list[0] + "–" + list[list.length - 1], list.length, ""); save();
+    };
+    $("lbGo").onclick = () => { const list = zoneRange($("lbP").value.trim().toUpperCase(), $("lbA").value, $("lbB").value); if(!list.length){ flash("Plage invalide (1 000 étiquettes au maximum).", "bad"); return; } make(list); };
+    if($("lbPlan")) $("lbPlan").onclick = () => make(pl);
+  }
+  /* ===== Plan de zones et avancement ===== */
+  function doneZones(){
+    const d = new Set(state.closed || []);
+    if(state.team){ let tz = {}; try{ tz = teamZones || {}; }catch(e){} Object.entries(tz).forEach(([z, x]) => { if(x && x.status === "closed") d.add(z); }); }
+    if(BUREAU) state.lines.forEach(l => d.add(l.zone));
+    return d;
+  }
+  function planProgress(){
+    const pl = state.plan || []; if(!pl.length) return null;
+    const d = doneZones(), done = pl.filter(z => d.has(z));
+    return {total: pl.length, done: done.length, todo: pl.filter(z => !d.has(z))};
+  }
+  function planSheet(){
+    const pl = state.plan || [], pr = planProgress();
+    openSheet('<h2>Plan de zones</h2><p>Déclare les zones prévues : chaque terminal affiche l’avancement (« Zones 12/40 ») et le rapport signale les zones non comptées.'+(state.team ? ' En équipe, le plan est partagé avec tous les terminaux.' : '')+'</p>'+
+      (pr ? '<div class="totals"><span><b class="num">'+pr.done+'</b> / '+pr.total+' faites</span></div>'+(pr.todo.length ? '<p><b>Restent :</b> <span class="num">'+esc(pr.todo.slice(0, 120).join(" "))+(pr.todo.length > 120 ? ' …' : '')+'</span></p>' : '<p><b>Toutes les zones prévues sont faites.</b></p>') : '')+
+      '<div class="btnrow"><label style="flex:1">Préfixe<input id="plP" value="'+esc(state.prefix || "Z")+'" maxlength="4"></label><label style="flex:1">De<input id="plA" inputmode="numeric" value="1"></label><label style="flex:1">À<input id="plB" inputmode="numeric" value="'+(pl.length || 40)+'"></label></div>'+
+      '<label>Zones à exclure (séparées par des espaces)<input id="plX" placeholder="Z013 Z027" autocomplete="off"></label>'+
+      '<div class="btnrow"><button class="btn primary" id="plOk">Enregistrer le plan</button>'+(pl.length ? '<button class="btn" id="plDel">Supprimer le plan</button>' : '')+'</div>'+
+      '<div class="btnrow"><button class="btn" id="plLb">Imprimer les étiquettes</button><button class="btn" id="plNo">Fermer</button></div>');
+    $("sheet").querySelectorAll("input").forEach(x => x.addEventListener("keydown", e => e.stopPropagation()));
+    $("plNo").onclick = () => BUREAU ? closeSheet() : $("menuBtn").click();
+    $("plLb").onclick = labelsSheet;
+    const setPlan = pl2 => { state.plan = pl2; logAct(pl2.length ? "Plan de zones : " + pl2.length + " zones" : "Plan de zones supprimé", "", "", "", ""); save(); render(); sharePlan(); };
+    $("plOk").onclick = () => {
+      const ex = new Set($("plX").value.toUpperCase().split(/[\s,;]+/).filter(Boolean));
+      const list = zoneRange($("plP").value.trim().toUpperCase(), $("plA").value, $("plB").value).filter(z => !ex.has(z));
+      if(!list.length){ flash("Plage invalide.", "bad"); return; }
+      setPlan(list); flash("Plan enregistré : " + list.length + " zones.", "ok"); planSheet();
+    };
+    if($("plDel")) $("plDel").onclick = () => { setPlan([]); planSheet(); };
+  }
+  async function sharePlan(){
+    if(!state.team || BUREAU) return;
+    try{ await fbInit(); await mref().collection("devices").doc("plan").set({plan: state.plan || [], at: new Date().toISOString(), by: state.counter || ""}); }catch(e){}
+  }
+  /* ===== Signatures (responsable de l’inventaire, client) ===== */
+  function sigPad(cv){
+    const r = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight; cv.width = W * r; cv.height = H * r;
+    const c = cv.getContext("2d"); c.scale(r, r); c.lineWidth = 2.4; c.lineCap = "round"; c.lineJoin = "round"; c.strokeStyle = "#111"; c.fillStyle = "#111";
+    let on = false, last = null, ink = false;
+    const pt = e => { const b = cv.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; };
+    cv.addEventListener("pointerdown", e => { e.preventDefault(); e.stopPropagation(); on = true; last = pt(e); try{ cv.setPointerCapture(e.pointerId); }catch(x){} c.beginPath(); c.arc(last[0], last[1], 1.1, 0, 7); c.fill(); ink = true; });
+    cv.addEventListener("pointermove", e => { if(!on) return; const p = pt(e); c.beginPath(); c.moveTo(last[0], last[1]); c.lineTo(p[0], p[1]); c.stroke(); last = p; });
+    ["pointerup","pointercancel"].forEach(t => cv.addEventListener(t, () => { on = false; }));
+    return {clear(){ c.clearRect(0, 0, W, H); ink = false; }, has(){ return ink; }, url(){ return cv.toDataURL("image/png"); }, draw(src){ const im = new Image(); im.onload = () => { c.drawImage(im, 0, 0, W, H); ink = true; }; im.src = src; }};
+  }
+  function sigSheet(){
+    const S = state.signatures || {}, R = state.rep || {}, C = state.company || {};
+    const box = (k, key, title, nameVal, role) => '<div class="sgb"><h3>'+title+'</h3>'+
+      '<label>Nom<input id="sg'+k+'N" value="'+esc(nameVal || "")+'" autocomplete="off"></label>'+
+      (role ? '<label>Fonction<input id="sg'+k+'R" value="'+esc((S.client && S.client.role) || "")+'" placeholder="Gérant, responsable de magasin…" autocomplete="off"></label>' : '')+
+      '<canvas class="sgc" id="sg'+k+'C"></canvas><div class="btnrow"><button class="btn" id="sg'+k+'X">Effacer la signature</button></div>'+
+      (S[key] && S[key].at && S[key].img ? '<p style="font-size:12px;margin:0">Signé le '+new Date(S[key].at).toLocaleString("fr-FR")+'</p>' : '')+'</div>';
+    openSheet('<h2>Signatures</h2><p>Signer au doigt dans les cadres. Les signatures sont insérées dans le rapport PDF.</p>'+
+      box("R", "resp", "Responsable de l’inventaire", (S.resp && S.resp.name) || state.counter || C.name || "", false)+
+      box("C", "client", "Client", (S.client && S.client.name) || (R.contact || "").split(",")[0] || "", true)+
+      '<div class="btnrow"><button class="btn" id="sgNo">Annuler</button><button class="btn primary" id="sgOk">Enregistrer</button></div>');
+    $("sheet").querySelectorAll("input").forEach(x => x.addEventListener("keydown", e => e.stopPropagation()));
+    const pr = sigPad($("sgRC")), pc = sigPad($("sgCC"));
+    if(S.resp && S.resp.img) pr.draw(S.resp.img); if(S.client && S.client.img) pc.draw(S.client.img);
+    $("sgRX").onclick = () => pr.clear(); $("sgCX").onclick = () => pc.clear();
+    $("sgNo").onclick = () => BUREAU ? closeSheet() : $("menuBtn").click();
+    $("sgOk").onclick = () => {
+      const now = new Date().toISOString(), old = state.signatures || {};
+      const mk = (pad, nm, prev, extra) => { if(!pad.has()) return nm ? Object.assign({name: nm}, extra || {}) : null; const u = pad.url(); return Object.assign({name: nm, img: u, at: prev && prev.img === u ? prev.at : now}, extra || {}); };
+      state.signatures = {resp: mk(pr, $("sgRN").value.trim(), old.resp), client: mk(pc, $("sgCN").value.trim(), old.client, {role: $("sgCR").value.trim()})};
+      logAct("Signatures : " + ([pr.has() ? "responsable" : "", pc.has() ? "client" : ""].filter(Boolean).join(" + ") || "aucune"), "", "", "", ""); save();
+      flash("Signatures enregistrées.", "ok"); BUREAU ? closeSheet() : $("menuBtn").click();
+    };
+  }
+  const sigStatus = () => { const S = state.signatures || {}; return "Responsable " + (S.resp && S.resp.img ? "✓" : "—") + " · Client " + (S.client && S.client.img ? "✓" : "—"); };
+  /* ===== Administrateurs communs à tous les terminaux (serveur) ===== */
+  const ADM_CODE = "ADMINS";
+  async function adminsServer(){
+    await fbInit();
+    const m = db.collection("missions").doc(ADM_CODE), p = await m.get({source: "server"});
+    if(!p.exists) await m.set({createdBy: fbUser.uid, kind: "admins", at: new Date().toISOString()});
+    return m.collection("devices").doc("list");
+  }
+  async function adminsPull(){
+    if(BUREAU || !navigator.onLine) return;
+    try{
+      const ref = await adminsServer(), d = await ref.get({source: "server"}), list = d.exists ? (d.data().admins || []) : [];
+      const u = loadUsers();
+      if(!list.length){ const mine = Object.entries(u).filter(([, x]) => x.admin); if(mine.length) await ref.set({admins: mine.map(([k, x]) => ({k, name: x.name, salt: x.salt, hash: x.hash})), at: new Date().toISOString()}); return; }
+      Object.keys(u).forEach(k => { if(u[k].admin) delete u[k]; });
+      list.forEach(a => { u[a.k] = {name: a.name, salt: a.salt, hash: a.hash, admin: true, shared: true}; });
+      saveUsers(u);
+    }catch(e){}
+  }
+  async function adminsPush(op){
+    try{
+      const ref = await adminsServer(), d = await ref.get({source: "server"});
+      let list = d.exists ? (d.data().admins || []) : [];
+      if(!list.length) list = Object.entries(loadUsers()).filter(([, x]) => x.admin).map(([k, x]) => ({k, name: x.name, salt: x.salt, hash: x.hash}));
+      if(op.add) list = list.filter(a => a.k !== op.add.k).concat(op.add);
+      if(op.remove) list = list.filter(a => a.k !== op.remove);
+      await ref.set({admins: list, at: new Date().toISOString()});
+      return true;
+    }catch(e){ flash("Administrateurs non synchronisés (pas de réseau) : réessaie plus tard.", "bad"); return false; }
+  }
+  setTimeout(adminsPull, 1500);
+  window.addEventListener("online", () => setTimeout(adminsPull, 1000));
+  /* ===== Suivi en direct (poste bureau) ===== */
+  const LIVE = {unsubs: [], rows: {}, zones: {}, plans: {}, timer: null};
+  function liveStop(){ LIVE.unsubs.forEach(u => { try{ u(); }catch(e){} }); LIVE.unsubs = []; clearInterval(LIVE.timer); LIVE.timer = null; }
+  async function liveStart(){
+    liveStop(); LIVE.rows = {}; LIVE.zones = {}; LIVE.plans = {};
+    const codes = state.liveCodes || []; if(!codes.length){ renderLive(); return; }
+    try{ await fbInit(); }catch(e){ renderLive("Connexion impossible : " + errMsg(e)); return; }
+    codes.forEach(code => {
+      const m = db.collection("missions").doc(code);
+      LIVE.unsubs.push(m.collection("devices").onSnapshot(sn => {
+        Object.keys(LIVE.rows).forEach(k => { if(k.startsWith(code + "/")) delete LIVE.rows[k]; });
+        sn.forEach(d => { const x = d.data();
+          if(d.id === "plan"){ LIVE.plans[code] = x.plan || []; return; }
+          if(d.id !== "backup" && x.backup) return;
+          if(d.id === "backup"){ let b = {}; try{ b = JSON.parse(x.backup); }catch(e){} LIVE.rows[code + "/backup"] = {code, who: x.who, lines: x.lines, qty: x.qty, at: x.at, zone: x.zone || b.zone || "", pph: x.pph, finished: x.finished, done: x.done || b.closed || []}; if((b.plan || []).length) LIVE.plans[code] = b.plan; return; }
+          LIVE.rows[code + "/" + d.id] = Object.assign({code}, x);
+        });
+        renderLive();
+      }, () => renderLive("Accès refusé ou code inconnu : " + code)));
+      LIVE.unsubs.push(m.collection("zones").onSnapshot(sn => { LIVE.zones[code] = {}; sn.forEach(d => { LIVE.zones[code][d.id] = d.data(); }); renderLive(); }, () => {}));
+    });
+    LIVE.timer = setInterval(() => renderLive(), 30000);
+  }
+  function renderLive(msg){
+    const el = $("bwLive"); if(!el) return;
+    const rows = Object.values(LIVE.rows), now = Date.now();
+    const ago = t => { const m = Math.round((now - Date.parse(t)) / 60000); return isNaN(m) ? "?" : m < 1 ? "à l’instant" : m < 60 ? "il y a " + m + " min" : "il y a " + Math.floor(m / 60) + " h " + String(m % 60).padStart(2, "0"); };
+    const done = new Set(), plan = new Set();
+    rows.forEach(r => (r.done || []).forEach(z => done.add(z)));
+    Object.values(LIVE.zones).forEach(zs => Object.entries(zs).forEach(([z, x]) => { if(x.status === "closed") done.add(z); }));
+    Object.values(LIVE.plans).forEach(pl => pl.forEach(z => plan.add(z)));
+    const tq = rows.reduce((a, r) => a + (r.qty || 0), 0), tl = rows.reduce((a, r) => a + (r.lines || 0), 0), act = rows.filter(r => !r.finished && now - Date.parse(r.at) < 10 * 60000).length;
+    const pd = plan.size ? [...plan].filter(z => done.has(z)).length : 0;
+    el.innerHTML = (msg ? '<p class="bw-msg">'+esc(msg)+'</p>' : '')+
+      '<div class="lv-kpis"><div><b>'+tq.toLocaleString("fr-FR")+'</b><span>articles comptés</span></div><div><b>'+tl.toLocaleString("fr-FR")+'</b><span>lignes</span></div><div><b>'+act+' / '+rows.length+'</b><span>terminaux actifs</span></div>'+
+        '<div><b>'+(plan.size ? pd + ' / ' + plan.size : done.size)+'</b><span>'+(plan.size ? 'zones faites (plan)' : 'zones fermées')+'</span></div></div>'+
+      (plan.size ? '<div class="lv-bar"><i style="width:'+Math.round(pd * 100 / plan.size)+'%"></i></div>' : '')+
+      (rows.length ? '<table class="lv-t"><thead><tr><th>Terminal</th><th>Statut</th><th>Zone en cours</th><th class="r">Articles</th><th class="r">Lignes</th><th class="r">PPH</th><th>Dernière activité</th></tr></thead><tbody>'+
+        rows.sort((a, b) => String(a.who).localeCompare(String(b.who))).map(r => { const idle = now - Date.parse(r.at) > 10 * 60000, st = r.finished ? '<span class="lv-s fin">Clôturé</span>' : idle ? '<span class="lv-s idle">Inactif</span>' : '<span class="lv-s on">En cours</span>';
+          return '<tr><td><b>'+esc(r.who || "Terminal")+'</b><br><small>'+esc(r.code)+'</small></td><td>'+st+'</td><td>'+esc(r.zone || "—")+'</td><td class="r">'+(r.qty || 0).toLocaleString("fr-FR")+'</td><td class="r">'+(r.lines || 0).toLocaleString("fr-FR")+'</td><td class="r">'+(r.pph ? Math.round(r.pph) : "—")+'</td><td>'+ago(r.at)+'</td></tr>'; }).join("")+'</tbody></table>' : '<p class="bw-empty" style="padding-top:40px">Ajoute le code d’équipe ou les codes K… des terminaux pour suivre la mission en direct.</p>')+
+      (plan.size && [...plan].some(z => !done.has(z)) ? '<p class="lv-todo"><b>Zones restantes :</b> '+esc([...plan].filter(z => !done.has(z)).sort().join(" "))+'</p>' : '')+
+      '<p class="bw-tip">Mise à jour automatique. Hors équipe, chaque terminal envoie son état environ 15 secondes après chaque scan.</p>';
   }
   /* ===== Scanner Zebra : guide de réglage ===== */
   function scannerSheet(){
@@ -1922,6 +2157,9 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
       '<div class="mexp '+(isExported() ? 'ok">Mission exportée' : 'no">Pas encore exportée depuis la dernière modification')+'</div>'+
       row("xX", "xls", "Exporter Excel", "Total, détail par zone, journal ("+(state.log||[]).length+")")+
       row("xC", "csv", "Exporter CSV", "")+
+      row("xPlan", "arch", "Plan de zones", (planProgress() ? planProgress().done + " / " + planProgress().total + " zones faites" : "Zones prévues et avancement"))+
+      row("xLbl", "csv", "Étiquettes de zones", "Planche A4 de codes-barres à imprimer")+
+      row("xSig", "ctrl", "Signatures", sigStatus())+
       row("xInfo", "csv", "Informations du rapport", infoCount() + " information" + (infoCount() > 1 ? "s" : "") + " renseignée" + (infoCount() > 1 ? "s" : ""))+
       row("xRep", "csv", "Rapport client (PDF)", "Synthèse, écarts, signatures")+
       row("xBk", "drive", "Sauvegarde serveur", bkCode() + " · " + bkStatus(), BK.err ? "" : (bkOn() && BK.last ? "on" : ""))+
@@ -1946,7 +2184,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 62 du 17/11/2026</p>');
+      '<p class="mver">Version 63 du 17/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -1959,6 +2197,9 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
     $("xOff").onclick = () => { keep(); logOffSheet(); };
     $("xRep").onclick = () => { keep(); reportSheet(); };
     $("xInfo").onclick = () => { keep(); infoSheet(false); };
+    $("xPlan").onclick = () => { keep(); planSheet(); };
+    $("xLbl").onclick = () => { keep(); labelsSheet(); };
+    $("xSig").onclick = () => { keep(); sigSheet(); };
     $("xBk").onclick = () => { keep(); backupSheet(); };
     $("xScan").onclick = () => { keep(); scannerSheet(); };
     if($("xUsers")) $("xUsers").onclick = () => { keep(); usersSheet(); };
@@ -2459,7 +2700,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
       const now = Date.now(), fin = state.finished || "", finChanged = (sync.fin || "") !== fin;
       if((ops.length && (zoneOps || now - lastDevW > 20000)) || finChanged){
         lastDevW = now;
-        ops.push(b => b.set(m.collection("devices").doc(deviceId), {who:state.counter||"", lines:state.lines.length, qty:sum(state.lines), at:new Date().toISOString(), finished: fin}));
+        ops.push(b => b.set(m.collection("devices").doc(deviceId), {who:state.counter||"", lines:state.lines.length, qty:sum(state.lines), at:new Date().toISOString(), finished: fin, zone: state.zone || "", pph: pphMission(state) || 0}));
       }
       if(!ops.length){ syncing = false; renderTeam(); return; }
       state.sync = {lines:snapL, zones:snapZ, logN:log.length, fin}; saveRaw();
@@ -2486,7 +2727,10 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
     stopTeam(); if(!state.team || !db) return;
     const m = mref();
     unsubs.push(m.collection("zones").onSnapshot(s => { teamZones = {}; s.forEach(d => { teamZones[d.id] = d.data(); }); }, e => { lastErr = errMsg(e); renderTeam(); }));
-    unsubs.push(m.collection("devices").onSnapshot(s => { teamDevices = {}; s.forEach(d => { teamDevices[d.id] = d.data(); }); renderTeam(); }, () => {}));
+    unsubs.push(m.collection("devices").onSnapshot(s => { teamDevices = {}; s.forEach(d => {
+      if(d.id === "plan"){ const pl = d.data().plan || []; if(JSON.stringify(pl) !== JSON.stringify(state.plan || [])){ state.plan = pl; saveRaw(); } return; }
+      teamDevices[d.id] = d.data(); }); renderTeam(); try{ render(); }catch(e){} }, () => {}));
+    unsubs.push(m.collection("zones").onSnapshot(() => { try{ render(); }catch(e){} }, () => {}));
   }
   function teamBoot(){
     renderTeam();
@@ -2500,7 +2744,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
   window.addEventListener("offline", renderTeam);
   function teamTotals(){
     let n = 0, q = 0, devs = 0;
-    Object.entries(teamDevices).forEach(([id, d]) => { if(id === deviceId) return; devs++; n += d.lines || 0; q += d.qty || 0; });
+    Object.entries(teamDevices).forEach(([id, d]) => { if(id === deviceId || id === "plan" || d.backup) return; devs++; n += d.lines || 0; q += d.qty || 0; });
     return {devs: devs + 1, n: n + state.lines.length, q: q + sum(state.lines)};
   }
   function renderTeam(){
@@ -2600,7 +2844,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
     let devs = [];
     try{ await fbInit(); const ds = await mref().collection("devices").get({source: "server"}); ds.forEach(d => devs.push(Object.assign({id: d.id}, d.data()))); }
     catch(e){ block('<p>Impossible de vérifier l’équipe : '+esc(errMsg(e))+'. Réessaie avec du réseau.</p>'); return; }
-    const open = devs.filter(d => d.id !== deviceId && !d.finished);
+    const open = devs.filter(d => d.id !== deviceId && d.id !== "plan" && !d.finished);
     if(open.length){ block('<p>Ces terminaux n’ont <b>pas encore clôturé</b> la mission :</p><ul>'+open.map(d => '<li><b>'+esc(d.who || ("appareil " + d.id))+'</b> · '+(d.lines || 0)+' lignes · dernier envoi '+(d.at ? new Date(d.at).toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"}) : "?")+'</li>').join("")+'</ul><p>Chacun doit faire Menu › Clôturer la mission, avec du réseau.</p>'); return; }
     if(!state.teamExportedAt){ block('<p>Fais d’abord <b>« Exporter toute l’équipe »</b> avec du réseau : c’est la seule copie complète une fois les données en ligne supprimées.</p>'); return; }
     openSheet('<h2>Supprimer les données en ligne ?</h2><div class="expst no">Action définitive : tous les scans de la mission '+esc(state.team.code)+' seront effacés du serveur, pour tous les terminaux.</div>'+

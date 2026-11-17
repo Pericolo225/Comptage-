@@ -654,9 +654,11 @@ body:not(.control) .ctrlsrc{display:none}
   <label>Code inventaire<input id="lgCode" maxlength="6" autocomplete="off" autocapitalize="characters" placeholder="Ex. 7KQ2MX" style="text-transform:uppercase;letter-spacing:.12em"></label>
   <input id="lgBadge" type="hidden">
   <label class="lgadm"><input id="lgAdm" type="checkbox"> Administrateur</label>
+  <label id="lgPinL" hidden>Code PIN administrateur (6 chiffres)<input id="lgPin" type="password" inputmode="numeric" maxlength="6" autocomplete="off"></label>
+  <button type="button" id="lgSwitch" hidden style="margin:4px 14px 0;background:none;border:0;color:var(--brand);text-decoration:underline;font:inherit;font-size:13px;text-align:left;padding:0">Utiliser l’e-mail et le mot de passe</button>
   <label id="lgMailL" hidden>E-mail administrateur<input id="lgMail" type="email" autocomplete="username" inputmode="email"></label>
   <label id="lgPassL" hidden>Mot de passe<input id="lgPass" type="password" autocomplete="current-password"></label>
-  <p id="lgNewHint" hidden style="margin:6px 14px 0;font-size:13px;color:var(--muted)">Connexion en ligne requise. Laisse le code inventaire vide pour <b>créer un code</b> (ou attribuer un code à l’inventaire en cours).</p>
+  <p id="lgNewHint" hidden style="margin:6px 14px 0;font-size:13px;color:var(--muted)">Laisse le code inventaire vide pour <b>créer un code</b> (ou attribuer un code à l’inventaire en cours).</p>
   <div class="lerr" id="lgErr"></div>
   <button class="lgo" id="lgGo">Log on</button>
   <div class="lmeta" id="lgMeta"></div>
@@ -1122,7 +1124,7 @@ body:not(.control) .ctrlsrc{display:none}
   /* ===== Log on / log off ===== */
   function showLogon(){
     if(sheetOpen) closeSheet();
-    $("lgName").value = state.counter || ""; $("lgBadge").value = state.badge || ""; $("lgCode").value = state.team ? state.team.code : ""; $("lgErr").textContent = "";
+    $("lgName").value = state.counter || ""; $("lgBadge").value = state.badge || ""; lgMode = "pin"; try{ lgShow(); }catch(e){} $("lgCode").value = state.team ? state.team.code : ""; $("lgErr").textContent = "";
     $("lgMeta").textContent = (state.mission ? "Mission : " + state.mission + " · " : "") + (state.lines.length ? fmtLines(state.lines.length) + (state.lines.length > 1 ? " déjà comptées" : " déjà comptée") + " sur ce terminal" : "Aucun comptage sur ce terminal");
     $("logon").classList.add("on");
     setTimeout(() => $("lgName").focus(), 50);
@@ -1182,6 +1184,7 @@ body:not(.control) .ctrlsrc{display:none}
     const d = await db.collection("admins").doc(cred.user.uid).get({source: "server"}).catch(() => null);
     if(!d || !d.exists){ await auth.signOut(); fbUser = null; fbP = null; throw new Error("Ce compte n’est pas déclaré administrateur."); }
     fbUser = cred.user;
+    try{ localStorage.setItem("comptage-admmail", email); }catch(e){}
     return cred.user;
   }
   async function adminSignOut(){
@@ -1222,6 +1225,7 @@ body:not(.control) .ctrlsrc{display:none}
       const keepCurrent = state.lines.length && !state.finished;
       if(!navigator.onLine){ if(keepCurrent){ flash("Hors ligne : connecté sans code inventaire. Crée le code dès que le réseau revient (log off puis log on).", "bad"); return true; } return err("Pas de réseau : impossible de créer un inventaire."); }
       await fbInit();
+      if(!fbIsAdmin()) return err("Pour créer un inventaire, connecte-toi une fois avec l’e-mail et le mot de passe (lien sous le PIN).");
       let tries = 0; do{ code = genCode(); tries++; }while((code[0] === "K" || (await mref(code).get({source:"server"})).exists) && tries < 12);
       await mref(code).set({name: state.mission || "Inventaire", createdAt: new Date().toISOString(), createdBy: fbUser.uid});
       if(!keepCurrent){ if(state.lines.length) archiveCurrent(); const keepS = settingsOf(state); state = Object.assign(blank(), keepS); loadMaster(); }
@@ -1249,7 +1253,13 @@ body:not(.control) .ctrlsrc{display:none}
     if(n.length < 2){ err("Indique ton nom."); $("lgName").focus(); return; }
     let name = n;
     let adminUser = null;
-    if(adm){
+    if(adm && lgMode === "pin" && validPins().length){
+      const s2 = lockLeft(); if(s2){ err(lockMsg(s2)); return; }
+      const pp = await checkPin($("lgPin").value.trim());
+      if(!pp){ $("lgPin").value = ""; if(!lockLeft()) err("PIN incorrect."); else err(lockMsg(lockLeft())); $("lgPin").focus(); return; }
+      adminUser = {uid: pp.uid, email: pp.email, pinOnly: true};
+      try{ if(navigator.onLine){ await fbInit(); if(fbIsAdmin() && fbUser.uid === pp.uid){ const all = loadAdmPins(); all[pp.uid].exp = Date.now() + PIN_DAYS * 864e5; saveAdmPins(all); } } }catch(e){}
+    } else if(adm){
       const mail = $("lgMail").value.trim(), pass = $("lgPass").value;
       if(!mail || !pass){ err("Saisis l’e-mail et le mot de passe administrateur."); return; }
       if(!navigator.onLine){ err("Pas de réseau : la connexion administrateur se fait en ligne. Connecte-toi comme inventoriste en attendant."); return; }
@@ -1266,15 +1276,22 @@ body:not(.control) .ctrlsrc{display:none}
     if(!joined) return;
     state.counter = name; state.badge = $("lgBadge").value.trim(); state.loggedIn = true; state.adminSession = adm; state.sessionStart = new Date().toISOString();
     logAct(adm ? "Log on administrateur" : "Log on", "", state.badge, "", ""); save(); render();
-    $("lgPass").value = ""; $("lgAdm").checked = false; $("lgMailL").hidden = true; $("lgPassL").hidden = true; $("lgNewHint").hidden = true;
+    $("lgPass").value = ""; $("lgPin").value = ""; $("lgAdm").checked = false; lgShow();
     $("logon").classList.remove("on"); beep(true);
     flash("Bonjour " + state.counter + (adm ? " (administrateur)" : "") + " : scanne l’étiquette de zone.", "zone"); focusScan();
-    if(adminUser && !loadAdmPins()[adminUser.uid]){ const tryPin = () => { if(sheetOpen) return setTimeout(tryPin, 800); setPinSheet(adminUser, null, true); }; setTimeout(tryPin, 700); }
+    if(adminUser && !adminUser.pinOnly && !loadAdmPins()[adminUser.uid]){ const tryPin = () => { if(sheetOpen) return setTimeout(tryPin, 800); setPinSheet(adminUser, null, true); }; setTimeout(tryPin, 700); }
   }
   $("lgGo").addEventListener("click", doLogon);
-  $("lgAdm").addEventListener("change", () => { const a = $("lgAdm").checked; $("lgMailL").hidden = !a; $("lgPassL").hidden = !a; $("lgNewHint").hidden = !a; $("lgErr").textContent = "";
-    if(a){ const p = Object.values(loadAdmPins())[0]; if(p && !$("lgMail").value) $("lgMail").value = p.email || ""; ($("lgMail").value ? $("lgPass") : $("lgMail")).focus(); } });
-  ["lgName","lgMail","lgPass","lgBadge","lgCode"].forEach(id => $(id).addEventListener("keydown", e => { e.stopPropagation(); if(e.key === "Enter"){ e.preventDefault(); doLogon(); } }));
+  /* Administrateur : PIN seul si ce terminal en a un ; sinon e-mail + mot de passe (une fois) */
+  let lgMode = "pin";
+  function lgShow(){
+    const a = $("lgAdm").checked, pin = a && lgMode === "pin" && validPins().length > 0;
+    $("lgPinL").hidden = !pin; $("lgSwitch").hidden = !pin; $("lgMailL").hidden = !a || pin; $("lgPassL").hidden = !a || pin; $("lgNewHint").hidden = !a;
+    if(a && !pin){ const p = Object.values(loadAdmPins())[0], last = localStorage.getItem("comptage-admmail"); if(!$("lgMail").value) $("lgMail").value = (p && p.email) || last || ""; }
+  }
+  $("lgAdm").addEventListener("change", () => { lgMode = "pin"; $("lgErr").textContent = ""; lgShow(); if($("lgAdm").checked) setTimeout(() => (!$("lgPinL").hidden ? $("lgPin") : $("lgMail").value ? $("lgPass") : $("lgMail")).focus(), 30); });
+  $("lgSwitch").addEventListener("click", () => { lgMode = "mail"; lgShow(); ($("lgMail").value ? $("lgPass") : $("lgMail")).focus(); });
+  ["lgName","lgPin","lgMail","lgPass","lgBadge","lgCode"].forEach(id => $(id).addEventListener("keydown", e => { e.stopPropagation(); if(e.key === "Enter"){ e.preventDefault(); doLogon(); } }));
   /* Actions sensibles : PIN administrateur local (6 chiffres, PBKDF2, blocage après 5 erreurs) */
   function requireAdmin(label, fn){
     if(!validPins().length){
@@ -1303,9 +1320,11 @@ body:not(.control) .ctrlsrc{display:none}
       '<p>Connecté en ligne : <b>'+(me ? esc(me) : 'non (session hors ligne)')+'</b></p>'+
       '<p>PIN administrateur sur ce terminal : '+(pins.length ? pins.map(p => '<b>'+esc(p.email || p.name)+'</b> (valable jusqu’au '+new Date(p.exp).toLocaleDateString("fr-FR")+')').join(", ") : 'aucun')+'</p>'+
       '<div class="btnrow">'+(me ? '<button class="btn primary" id="seP">Changer mon PIN</button>' : '')+(pins.length ? '<button class="btn" id="seR">Effacer les PIN de ce terminal</button>' : '')+'</div>'+
+      (me ? '<div class="btnrow"><button class="btn" id="seO">Déconnecter le compte administrateur de ce terminal</button></div>' : '')+
       '<div class="btnrow"><button class="btn" id="seNo">Fermer</button></div>');
     $("seNo").onclick = closeSheet;
     if($("seP")) $("seP").onclick = () => setPinSheet(fbUser, () => usersSheet());
+    if($("seO")) $("seO").onclick = () => { adminSignOut(); closeSheet(); flash("Compte administrateur déconnecté de ce terminal.", "ok"); };
     if($("seR")) $("seR").onclick = () => requireAdmin("Effacer les PIN", () => { saveAdmPins({}); logAct("PIN administrateur effacés", "", "", "", ""); save(); flash("PIN effacés : reconnexion en ligne nécessaire.", "ok"); });
   }
 
@@ -2072,7 +2091,7 @@ body:not(.control) .ctrlsrc{display:none}
       '<p>Les comptages restent enregistrés sur le terminal. Le prochain inventoriste devra se connecter.</p>'+
       '<div class="btnrow"><button class="btn" id="loNo">Annuler</button><button class="btn logoff" id="loOk">LOG OFF</button></div>');
     $("loNo").onclick = closeSheet;
-    $("loOk").onclick = () => { logAct("Log off", "", state.badge || "", q, ""); const wasAdm = state.adminSession; state.loggedIn = false; state.adminSession = false; save(); closeSheet(); showLogon(); if(wasAdm) adminSignOut(); };
+    $("loOk").onclick = () => { logAct("Log off", "", state.badge || "", q, ""); state.loggedIn = false; state.adminSession = false; save(); closeSheet(); showLogon(); };
   }
   if(BUREAU) setTimeout(bureauBoot, 0); else if(!state.loggedIn) showLogon();
   /* Écran toujours en portrait normal (jamais retourné à 180°) */
@@ -2421,7 +2440,7 @@ body:not(.control) .ctrlsrc{display:none}
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 73 du 17/11/2026</p>');
+      '<p class="mver">Version 74 du 17/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -2899,7 +2918,6 @@ body:not(.control) .ctrlsrc{display:none}
       try{ await db.enablePersistence({synchronizeTabs: true}); }catch(e){}
       const auth = firebase.auth();
       fbUser = auth.currentUser || await new Promise(res => { const u = auth.onAuthStateChanged(x => { u(); res(x); }); });
-      if(fbUser && !fbUser.isAnonymous && !(state.loggedIn && state.adminSession)){ try{ await auth.signOut(); }catch(e){} fbUser = null; }
       if(!fbUser){ const r = await auth.signInAnonymously(); fbUser = r.user; }
       return db;
     })();

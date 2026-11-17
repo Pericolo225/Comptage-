@@ -580,7 +580,7 @@ body:not(.control) .ctrlsrc{display:none}
   <button class="team" id="team" hidden style="text-align:left"></button>
   <div class="flash" id="flash">Scanne l’étiquette de zone pour commencer.</div>
   <div class="ctrlsrc" id="ctrlSrc" hidden></div>
-  <div class="ctrlbar" id="ctrlbar">MODE CONTRÔLE CLIENT<small>Scanne une zone pour voir son détail, ou un article pour vérifier s’il est compté et où. Aucun comptage, aucune zone rouverte.</small></div>
+  <div class="ctrlbar" id="ctrlbar">CONTRÔLE<small>Scanne une zone pour voir son détail, ou un article pour vérifier s’il est compté et où. Aucun comptage, aucune zone rouverte.</small></div>
 
   <div class="list" id="list"></div>
   <div class="cam" id="cam">
@@ -859,7 +859,7 @@ body:not(.control) .ctrlsrc{display:none}
   function updateStatus(){
     if(controlMode){
       $("status").classList.add("ctrl"); $("status").classList.remove("off","typing");
-      $("statusTxt").textContent = "Contrôle client · aucun comptage";
+      $("statusTxt").textContent = "CONTRÔLE · aucun comptage";
       return;
     }
     $("status").classList.remove("ctrl");
@@ -1449,7 +1449,7 @@ body:not(.control) .ctrlsrc{display:none}
       '<label>Contact<input id="iPc" value="'+v(C.contact)+'" placeholder="Téléphone · e-mail"></label>'+
       '<div class="btnrow"><button class="btn" id="iNo">Annuler</button><button class="btn primary" id="iOk">Enregistrer</button></div>');
     $("sheet").querySelectorAll("input,select").forEach(x => x.addEventListener("keydown", e => e.stopPropagation()));
-    const back = () => fromReport ? reportSheet() : $("menuBtn").click();
+    const back = () => fromReport === "hub" ? reportHub() : fromReport ? reportSheet() : $("menuBtn").click();
     $("iNo").onclick = back;
     $("iOk").onclick = () => {
       const g = id => $(id).value.trim();
@@ -1460,7 +1460,7 @@ body:not(.control) .ctrlsrc{display:none}
       save(); flash("Informations du rapport enregistrées.", "ok"); back();
     };
   }
-  function reportSheet(){
+  function reportSheet(from){
     if(!state.lines.length && !state.team){ flash("Rien à mettre dans le rapport : aucun article compté.", "bad"); return; }
     const C = state.company || {};
     openSheet('<h2>Rapport client</h2>'+
@@ -1474,7 +1474,7 @@ body:not(.control) .ctrlsrc{display:none}
     $("sheet").querySelectorAll("input,textarea").forEach(x => x.addEventListener("keydown", e => e.stopPropagation()));
     const keep = () => { state.reportNotes = $("rpObs").value.trim(); save(); };
     $("rpInfo").onclick = () => { keep(); infoSheet(true); };
-    $("rpNo").onclick = () => { keep(); closeSheet(); };
+    $("rpNo").onclick = () => { keep(); from === "hub" ? reportHub() : closeSheet(); };
     $("rpPdf").onclick = async () => {
       keep(); $("rpPdf").textContent = "Préparation…";
       const D = await reportData();
@@ -1765,7 +1765,28 @@ body:not(.control) .ctrlsrc{display:none}
     ["pointerup","pointercancel"].forEach(t => cv.addEventListener(t, () => { on = false; }));
     return {clear(){ c.clearRect(0, 0, W, H); ink = false; }, has(){ return ink; }, url(){ return cv.toDataURL("image/png"); }, draw(src){ const im = new Image(); im.onload = () => { c.drawImage(im, 0, 0, W, H); ink = true; }; im.src = src; }};
   }
-  function sigSheet(){
+  /* Onglet Rapport : signatures, informations, rapport client */
+  function reportHub(){
+    const I = {
+      sig: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z",
+      doc: "M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z",
+      back: "M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"
+    };
+    const ic = k => '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="'+I[k]+'"/></svg>';
+    const row = (id, k, label, sub) => '<button class="mrow" id="'+id+'">'+ic(k)+'<span class="ml">'+label+(sub ? '<small>'+sub+'</small>' : '')+'</span><svg class="chev" viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg></button>';
+    openSheet('<div class="mbar"><button class="mx" id="rhBack" aria-label="Retour">'+ic("back")+'</button><b>Rapport</b></div>'+
+      '<div class="msec">Avant d’éditer le rapport</div>'+
+      row("rhInfo", "doc", "Informations du rapport", infoCount() + " information" + (infoCount() > 1 ? "s" : "") + " renseignée" + (infoCount() > 1 ? "s" : ""))+
+      row("rhSig", "sig", "Signatures", sigStatus())+
+      '<div class="msec">Édition</div>'+
+      row("rhPdf", "doc", "Rapport client (PDF)", "Synthèse, écarts, signatures")+
+      '<p class="mver">Sur PC : '+esc(location.origin + location.pathname)+'#bureau</p>');
+    $("rhBack").onclick = () => $("menuBtn").click();
+    $("rhInfo").onclick = () => infoSheet("hub");
+    $("rhSig").onclick = () => sigSheet("hub");
+    $("rhPdf").onclick = () => reportSheet("hub");
+  }
+  function sigSheet(from){
     const S = state.signatures || {}, R = state.rep || {}, C = state.company || {};
     const box = (k, key, title, nameVal, role) => '<div class="sgb"><h3>'+title+'</h3>'+
       '<label>Nom<input id="sg'+k+'N" value="'+esc(nameVal || "")+'" autocomplete="off"></label>'+
@@ -1780,13 +1801,14 @@ body:not(.control) .ctrlsrc{display:none}
     const pr = sigPad($("sgRC")), pc = sigPad($("sgCC"));
     if(S.resp && S.resp.img) pr.draw(S.resp.img); if(S.client && S.client.img) pc.draw(S.client.img);
     $("sgRX").onclick = () => pr.clear(); $("sgCX").onclick = () => pc.clear();
-    $("sgNo").onclick = () => BUREAU ? closeSheet() : $("menuBtn").click();
+    const sgBack = () => BUREAU ? closeSheet() : from === "hub" ? reportHub() : $("menuBtn").click();
+    $("sgNo").onclick = sgBack;
     $("sgOk").onclick = () => {
       const now = new Date().toISOString(), old = state.signatures || {};
       const mk = (pad, nm, prev, extra) => { if(!pad.has()) return nm ? Object.assign({name: nm}, extra || {}) : null; const u = pad.url(); return Object.assign({name: nm, img: u, at: prev && prev.img === u ? prev.at : now}, extra || {}); };
       state.signatures = {resp: mk(pr, $("sgRN").value.trim(), old.resp), client: mk(pc, $("sgCN").value.trim(), old.client, {role: $("sgCR").value.trim()})};
       logAct("Signatures : " + ([pr.has() ? "responsable" : "", pc.has() ? "client" : ""].filter(Boolean).join(" + ") || "aucune"), "", "", "", ""); save();
-      flash("Signatures enregistrées.", "ok"); BUREAU ? closeSheet() : $("menuBtn").click();
+      flash("Signatures enregistrées.", "ok"); sgBack();
     };
   }
   const sigStatus = () => { const S = state.signatures || {}; return "Responsable " + (S.resp && S.resp.img ? "✓" : "—") + " · Client " + (S.client && S.client.img ? "✓" : "—"); };
@@ -2235,12 +2257,10 @@ body:not(.control) .ctrlsrc{display:none}
       row("xC", "csv", "Exporter CSV", "")+
       row("xPlan", "arch", "Plan de zones", (planProgress() ? planProgress().done + " / " + planProgress().total + " zones faites" : "Zones prévues et avancement"))+
       row("xLbl", "csv", "Étiquettes de zones", "Planche A4 de codes-barres à imprimer")+
-      row("xSig", "ctrl", "Signatures", sigStatus())+
-      row("xInfo", "csv", "Informations du rapport", infoCount() + " information" + (infoCount() > 1 ? "s" : "") + " renseignée" + (infoCount() > 1 ? "s" : ""))+
-      row("xRep", "csv", "Rapport client (PDF)", "Synthèse, écarts, signatures")+
+      row("xRepHub", "csv", "Rapport", "Signatures · informations du rapport · rapport client PDF")+
       row("xBk", "drive", "Sauvegarde serveur", bkCode() + " · " + bkStatus(), BK.err ? "" : (bkOn() && BK.last ? "on" : ""))+
       '<div class="msec">Outils</div>'+
-      row("xCtrl", "ctrl", "Mode contrôle client", controlMode ? "Activé" : "Vérifier sans compter", controlMode ? "on" : "")+
+      row("xCtrl", "ctrl", "CONTRÔLE", controlMode ? "Activé" : "Vérifier sans compter", controlMode ? "on" : "")+
       row("xMaster", "db", "Stock théorique", master ? master.items.length + " références chargées" : "Charger le fichier client")+
       (master ? row("xEc", "ec", "Écarts", "Compté / théorique") : '')+
       row("xTeam", "team", "Équipe en ligne", state.team ? "Code " + esc(state.team.code) : "Compter à plusieurs")+
@@ -2260,7 +2280,7 @@ body:not(.control) .ctrlsrc{display:none}
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 68 du 17/11/2026</p>');
+      '<p class="mver">Version 69 du 17/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -2271,11 +2291,11 @@ body:not(.control) .ctrlsrc{display:none}
     $("xDrive").onclick = () => { keep(); driveSheet(); };
     $("xMaster").onclick = () => { keep(); masterSheet(); };
     $("xOff").onclick = () => { keep(); logOffSheet(); };
-    $("xRep").onclick = () => { keep(); reportSheet(); };
-    $("xInfo").onclick = () => { keep(); infoSheet(false); };
+
+
     $("xPlan").onclick = () => { keep(); planSheet(); };
     $("xLbl").onclick = () => { keep(); labelsSheet(); };
-    $("xSig").onclick = () => { keep(); sigSheet(); };
+    $("xRepHub").onclick = () => { keep(); reportHub(); };
     $("xBk").onclick = () => { keep(); backupSheet(); };
     $("xScan").onclick = () => { keep(); scannerSheet(); };
     if($("xUsers")) $("xUsers").onclick = () => { keep(); usersSheet(); };
@@ -3045,8 +3065,8 @@ body:not(.control) .ctrlsrc{display:none}
     $("manualCode").placeholder = on ? "Code à vérifier : tape-le ici" : "Code non scanné : tape-le ici";
     $("manualCode").setAttribute("inputmode", on ? "text" : "numeric");
     updateStatus();
-    if(on){ flash("MODE CONTRÔLE activé : scanne une zone ou un article pour vérifier. Rien n’est compté, aucune zone n’est rouverte.", "zone"); ctrlRefresh(true); ctrlTimer = setInterval(() => ctrlRefresh(false), 60000); }
-    else { clearInterval(ctrlTimer); flash("Mode contrôle désactivé : retour au comptage.", ""); }
+    if(on){ flash("CONTRÔLE activé : scanne une zone ou un article pour vérifier. Rien n’est compté, aucune zone n’est rouverte.", "zone"); ctrlRefresh(true); ctrlTimer = setInterval(() => ctrlRefresh(false), 60000); }
+    else { clearInterval(ctrlTimer); flash("CONTRÔLE désactivé : retour au comptage.", ""); }
     renderCtrlSrc();
   }
   /* Contrôle sur les comptages de TOUS les terminaux : équipe (automatique) + codes K… ajoutés */

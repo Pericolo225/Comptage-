@@ -649,11 +649,11 @@ body:not(.control) .ctrlsrc{display:none}
 <div class="logon" id="logon" role="dialog" aria-modal="true">
   <div class="lmark">III</div>
   <h1>Log on</h1>
-  <p>Identification de l’inventoriste</p>
+  <p>Nom et code inventaire</p>
   <label>Nom de l’inventoriste<input id="lgName" autocomplete="off" autocapitalize="words" placeholder="Prénom et nom"></label>
-  <label>Code inventaire (6 caractères, donné par l’administrateur)<input id="lgCode" maxlength="6" autocomplete="off" autocapitalize="characters" placeholder="Ex. 7KQ2MX" style="text-transform:uppercase;letter-spacing:.12em"></label>
-  <label>Matricule / badge (facultatif)<input id="lgBadge" autocomplete="off" inputmode="text" placeholder="ex. 20297013"></label>
-  <label class="lgadm"><input id="lgAdm" type="checkbox"> Connexion administrateur</label>
+  <label>Code inventaire<input id="lgCode" maxlength="6" autocomplete="off" autocapitalize="characters" placeholder="Ex. 7KQ2MX" style="text-transform:uppercase;letter-spacing:.12em"></label>
+  <input id="lgBadge" type="hidden">
+  <label class="lgadm"><input id="lgAdm" type="checkbox"> Administrateur</label>
   <label id="lgPinL" hidden>Code PIN administrateur (4 à 6 chiffres)<input id="lgPin" type="password" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="••••"></label>
   <p id="lgNewHint" hidden style="margin:6px 14px 0;font-size:13px;color:var(--muted)">Administrateur : laisse le code vide pour <b>créer un code</b>. Si ce terminal a déjà un inventaire en cours, il le garde et reçoit le code ; sinon un nouvel inventaire est créé.</p>
   <label id="lgPin2L" hidden>Premier administrateur : confirme le PIN<input id="lgPin2" type="password" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="••••"></label>
@@ -1274,6 +1274,12 @@ body:not(.control) .ctrlsrc{display:none}
       const payload = {who: state.counter || "", lines: state.lines.length, qty: sum(state.lines), at: new Date().toISOString(), zone: state.zone || "", pph: pphMission(state) || 0, done: (state.closed || []).slice(-500), plan: (state.plan || []).length, mission: state.mission || "", startedAt: state.startedAt || "", finished: state.finished || "", backup: json};
       /* « backup » = dernière mission du terminal ; « m… » = une copie par mission, jamais écrasée par la mission suivante */
       await Promise.all([mdoc.collection("devices").doc("backup").set(payload), mdoc.collection("devices").doc(bkMissionId()).set(payload)]);
+      if(state.team){
+        const meta = JSON.stringify({mission: state.mission, site: state.site, rep: state.rep, company: state.company, signatures: state.signatures, plan: state.plan, reportNotes: state.reportNotes});
+        await db.collection("missions").doc(state.team.code).collection("devices").doc("meta_" + deviceId).set({backup: meta, metaOnly: true, at: new Date().toISOString(), finished: state.finished || ""});
+      }
+      if(!BK.purged){ BK.purged = true; const lim = Date.now() - 30 * 864e5, all = await mdoc.collection("devices").get({source: "server"});
+        all.forEach(d => { if(/^m[0-9a-z]+$/.test(d.id) && !d.data().metaOnly && Date.parse(d.data().at) < lim) d.ref.delete().catch(() => {}); }); }
       BK.last = Date.now(); BK.err = ""; try{ localStorage.setItem(BK_KEY, String(BK.last)); }catch(e){}
     }catch(e){ BK.err = e && e.message && /volumineuse/.test(e.message) ? e.message : errMsg(e); }
     BK.running = false;
@@ -1362,7 +1368,7 @@ body:not(.control) .ctrlsrc{display:none}
     h += '<h2>1. Synthèse</h2><div class="kpis">'+kpi(num(tot), "articles comptés")+kpi(num(refs.length), "références")+kpi(num(zs.length), "zones")+
       (hasCost ? kpi(fmtEur(valCt), "valeur comptée HT") : estVal != null ? kpi(fmtEur(estVal), "valeur estimée HT*") : '')+
       (declared > 0 && !(T && T.hasCost) ? kpi(fmtEur(declared), "valeur déclarée par le client") : '')+
-      (T ? kpi(sgn(T.ct - T.th), "écart en quantité", T.ct - T.th < 0 ? "neg" : "") + (T.hasCost ? kpi(fmtEur(T.vct - T.vth), "écart de valeur HT", T.vct - T.vth < 0 ? "neg" : "") : '') + (prec != null ? kpi(pct(prec), "fiabilité du stock") : '') : '')+'</div>';
+      (T ? kpi(sgn(T.ct - T.th), "écart en quantité", T.ct - T.th < 0 ? "neg" : "") + (T.hasCost ? kpi(fmtEur(T.vct - T.vth), "écart de valeur HT", T.vct - T.vth < 0 ? "neg" : "") : '') + (prec != null ? kpi(pct(prec), "références sans écart") : '') : '')+'</div>';
     if(T) h += '<p class="tx">Sur '+num(rowsEc.length)+' références du stock théorique, '+num(okRefs)+' sont conformes et '+num(nMiss + nEx)+' présentent un écart ('+num(nMiss)+' en manque, '+num(nEx)+' en surplus)'+(T.unknown ? ', et '+num(T.unknown)+' code'+(T.unknown > 1 ? 's' : '')+' scanné'+(T.unknown > 1 ? 's sont' : ' est')+' absent'+(T.unknown > 1 ? 's' : '')+' du fichier article' : '')+'.'+(T.hasCost && T.vth ? ' L’écart de valeur représente '+pct((T.vct - T.vth) * 100 / T.vth)+' de la valeur théorique.' : '')+'</p>';
     if(estVal != null) h += '<p class="note">* Estimation : '+num(tot)+' articles × prix moyen d’achat HT de '+fmtEur(avg)+' communiqué par le client. Elle ne remplace pas une valorisation article par article.</p>';
     if(declared > 0 && (hasCost || estVal != null) && !(T && T.hasCost)){ const v = hasCost ? valCt : estVal, dv = v - declared; h += '<p class="tx">Écart avec la valeur de stock déclarée par le client : <b class="'+(dv < 0 ? 'neg' : 'pos')+'">'+fmtEur(dv)+'</b> ('+pct(dv * 100 / declared)+').</p>'; }
@@ -1370,9 +1376,9 @@ body:not(.control) .ctrlsrc{display:none}
       h += '<p class="tx">Plan de zones : <b>'+num(pl.length - miss.length)+' / '+num(pl.length)+'</b> zones prévues comptées.'+(miss.length ? ' <span class="neg">Zones prévues non comptées : '+esc(miss.join(", "))+'.</span>' : '')+'</p>'; } }
     /* 2. Méthodologie */
     if(R.method !== false) h += '<h2>2. Méthode de comptage</h2><ul class="mt">'+
-      '<li>Le magasin est découpé en <b>'+num(zs.length)+' zones étiquetées</b> ; chaque zone est ouverte, comptée puis fermée par scan de son étiquette, ce qui empêche les doubles comptages.</li>'+
-      '<li>Chaque article est identifié par <b>lecture de son code-barres</b> sur terminal professionnel ; les codes EAN invalides sont refusés et les quantités élevées doivent être confirmées.</li>'+
-      (master ? '<li>Le comptage est réalisé <b>sans connaissance du stock théorique</b> ; le rapprochement n’intervient qu’après comptage.</li>' : '')+
+      '<li>Le magasin est découpé en <b>'+num(zs.length)+' zones étiquetées</b> ; chaque zone est ouverte, comptée puis fermée par scan de son étiquette, ce qui limite les doubles comptages.</li>'+
+      '<li>Chaque article est identifié par <b>lecture de son code-barres</b> sur terminal professionnel'+(state.check !== false ? ' ; les codes EAN dont la clé de contrôle est invalide sont refusés' : '')+' ; les quantités saisies au-delà d’un seuil sont confirmées.</li>'+
+      (master ? '<li>Les quantités théoriques ne sont pas affichées pendant le comptage ; le rapprochement est fait après le comptage.</li>' : '')+
       '<li>Toute correction est <b>tracée</b> dans un journal horodaté ('+num(corr)+' correction'+(corr > 1 ? 's' : '')+' sur cet inventaire).</li>'+
       (D.devices > 1 ? '<li>Les comptages de <b>'+D.devices+' terminaux</b> ont été consolidés dans ce rapport.</li>' : '')+'</ul>';
     /* 3. Rapprochement */
@@ -1411,7 +1417,7 @@ body:not(.control) .ctrlsrc{display:none}
     const SG = state.signatures || {}, sgd = x => x && x.at ? new Date(x.at).toLocaleDateString("fr-FR") : "";
     const sgImg = x => x && x.img ? '<img src="'+x.img+'" alt="signature" style="max-width:100%;height:22mm;object-fit:contain;align-self:flex-start">' : '<span style="height:16mm"></span>';
     h += '<div class="sig"><div><b>Le responsable de l’inventaire</b><span>'+esc((SG.resp && SG.resp.name) || "")+(C.name ? ' — '+esc(C.name) : '')+'</span><span>Date : '+sgd(SG.resp)+'</span>'+sgImg(SG.resp)+'</div>'+
-      '<div><b>Le client</b><span>Nom et qualité : '+esc((SG.client && [SG.client.name, SG.client.role].filter(Boolean).join(", ")) || R.contact || "")+'</span><span>Date : '+sgd(SG.client)+'</span>'+sgImg(SG.client)+(SG.client && SG.client.img ? '<span style="font-size:9px;color:#555">Signé électroniquement, lu et approuvé</span>' : '<span>Signature, précédée de « Lu et approuvé » :</span>')+'</div></div>'+
+      '<div><b>Le client</b><span>Nom et qualité : '+esc((SG.client && [SG.client.name, SG.client.role].filter(Boolean).join(", ")) || R.contact || "")+'</span><span>Date : '+sgd(SG.client)+'</span>'+sgImg(SG.client)+(SG.client && SG.client.img ? '<span style="font-size:9px;color:#555">Signature manuscrite recueillie sur terminal</span>' : '<span>Signature, précédée de « Lu et approuvé » :</span>')+'</div></div>'+
       '<p class="note">Les quantités reflètent le stock physiquement présent et accessible au moment du comptage. ' + (parseInt(R.claimDays, 10) > 0 ? ' Le client dispose de ' + parseInt(R.claimDays, 10) + ' jour' + (parseInt(R.claimDays, 10) > 1 ? 's' : '') + ' après remise du rapport pour formuler une réserve écrite ; passé ce délai, l’inventaire est réputé accepté.' : '') + (R.annex !== false && master ? ' Le détail par désignation figure en annexe ; le détail par code-barres et par zone figure dans le fichier Excel remis avec ce rapport.' : ' Le détail par code-barres et par zone figure dans le fichier Excel remis avec ce rapport.') + '</p>';
     /* Annexe : inventaire par désignation (sans codes-barres, présents dans l’Excel) */
     if(R.annex !== false && master){
@@ -1466,7 +1472,7 @@ body:not(.control) .ctrlsrc{display:none}
       '<label>Prix moyen d’achat HT par article (€)<input id="iAvg" value="'+v(R.avgPrice)+'" inputmode="decimal" placeholder="Ex. : 8,50"></label>'+
       '<label>Valeur du stock déclarée par le client (€ HT)<input id="iDec" value="'+v(R.stockValue)+'" inputmode="decimal"></label>'+
       '<h3 style="margin:10px 0 0">Contenu du rapport</h3>'+
-      '<label>Délai de réserve du client (jours, vide = aucune clause)<input id="iCl" value="'+v(R.claimDays)+'" inputmode="numeric" placeholder="Ex. : 2"></label>'+
+      '<label>Délai de réserve du client en jours (vide = aucune clause, recommandé sans avis juridique)<input id="iCl" value="'+v(R.claimDays)+'" inputmode="numeric" placeholder="Ex. : 2"></label>'+
       '<label class="chk"><input id="iMe" type="checkbox"'+(R.method === false ? '' : ' checked')+'> Inclure la méthode de comptage</label>'+
       '<label class="chk"><input id="iAn" type="checkbox"'+(R.annex === false ? '' : ' checked')+'> Inclure l’annexe détaillée par référence</label>'+
       '<h3 style="margin:10px 0 0">Prestataire (gardé pour les prochaines missions)</h3>'+
@@ -1545,7 +1551,7 @@ body:not(.control) .ctrlsrc{display:none}
       else {
         const all = await m.collection("devices").get({source: "server"}), ms = [];
         let latest = null;
-        all.forEach(d => { const x = d.data(); if(!x.backup) return; if(d.id === "backup") latest = x; else if(d.id[0] === "m") ms.push(x); });
+        all.forEach(d => { const x = d.data(); if(!x.backup || x.metaOnly) return; if(d.id === "backup") latest = x; else if(d.id[0] === "m") ms.push(x); });
         if(ms.length > 1){ bureauPickMission(code, add, ms.sort((a, b) => String(b.startedAt || b.at).localeCompare(String(a.startedAt || a.at)))); return; }
         bkd = ms[0] || latest;
       }
@@ -1559,11 +1565,15 @@ body:not(.control) .ctrlsrc{display:none}
         const lines = [], log = [];
         ls.forEach(d => { const x = d.data(); lines.push({zone: x.zone, code: x.code, qty: x.qty, src: x.src || "scan", who: x.who || "", t: x.t, device: code + ":" + x.device}); });
         lg.forEach(d => log.push(d.data()));
-        src = {kind: "équipe", lines, log, meta: {mission: (pd.exists && pd.data().name) || ""}, at: new Date().toISOString()};
+        let meta = {mission: (pd.exists && pd.data().name) || ""};
+        try{ const dv = await m.collection("devices").get({source: "server"}); let best = null;
+          dv.forEach(d => { const x = d.data(); if(x.metaOnly && (!best || String(x.at) > String(best.at))) best = x; });
+          if(best){ const mm = JSON.parse(best.backup); Object.keys(mm).forEach(k => { if(mm[k] != null && mm[k] !== "") meta[k] = mm[k]; }); } }catch(e){}
+        src = {kind: "inventaire", lines, log, meta, at: new Date().toISOString()};
       }
       if(!add || !state.lines.length){
         const keepS = settingsOf(state), company = state.company;
-        const base = src.kind === "terminal" ? Object.assign(blank(), src.meta, {lines: [], log: [], seq: 1}) : Object.assign(blank(), keepS, {mission: src.meta.mission});
+        const base = src.kind === "terminal" ? Object.assign(blank(), src.meta, {lines: [], log: [], seq: 1}) : Object.assign(blank(), keepS, src.meta);
         base.loggedIn = true; base.zone = null; delete base.team; delete base.sync; base.backup = false; base.srcCodes = []; base.srcInfo = {};
         if(company && company.name && !(base.company && base.company.name)) base.company = company;
         state = base;
@@ -1601,16 +1611,16 @@ body:not(.control) .ctrlsrc{display:none}
     $("bureau").innerHTML =
       '<aside class="bw-side"><div class="bw-brand"><b>'+(bwTab === "live" ? 'Suivi en direct' : 'Rapport d’inventaire')+'</b><span>Poste bureau</span></div>'+
       '<div class="bw-tabs"><button class="'+(bwTab !== "live" ? 'on' : '')+'" id="bwTR">Rapport</button><button class="'+(bwTab === "live" ? 'on' : '')+'" id="bwTL">Suivi en direct</button></div>'+
-      (bwTab === "live" ? '<section><h3>Terminaux suivis</h3><p>Code d’équipe ou codes K… des terminaux de la mission.</p><div class="bw-row"><input id="lvCode" placeholder="K51RJN" maxlength="6"><button class="btn primary" id="lvAdd">Suivre</button></div>'+
+      (bwTab === "live" ? '<section><h3>Terminaux suivis</h3><p>Code inventaire de la mission en cours.</p><div class="bw-row"><input id="lvCode" placeholder="Code inventaire" maxlength="6"><button class="btn primary" id="lvAdd">Suivre</button></div>'+
         ((state.liveCodes || []).length ? '<ul class="bw-src">'+state.liveCodes.map(c => '<li><span><b>'+esc(c)+'</b></span><button class="bw-x" data-lrm="'+esc(c)+'">✕</button></li>').join("")+'</ul>' : '')+'</section>' : '')+
-      (bwTab === "live" ? '<div hidden>' : '<div>')+'<section><h3>1. Données du comptage</h3><p>Charge <b>chaque terminal</b> de la mission avec son code K… (Menu › Sauvegarde serveur), ou un code d’équipe. Le rapport additionne tout.</p>'+
-        '<div class="bw-row"><input id="bwCode" placeholder="K51RJN" maxlength="6"><button class="btn primary" id="bwLoad">'+(has ? 'Ajouter' : 'Charger')+'</button></div>'+
+      (bwTab === "live" ? '<div hidden>' : '<div>')+'<section><h3>1. Données du comptage</h3><p>Saisis le <b>code inventaire</b> : tous les terminaux de la mission sont chargés, avec les informations et signatures saisies sur le terminal.</p><p hidden>e d’équipe. Le rapport additionne tout.</p>'+
+        '<div class="bw-row"><input id="bwCode" placeholder="Code inventaire" maxlength="6"><button class="btn primary" id="bwLoad">'+(has ? 'Ajouter' : 'Charger')+'</button></div>'+
         (msg ? '<p class="bw-msg">'+esc(msg)+'</p>' : '')+
         ((state.srcCodes || []).length ? '<ul class="bw-src">'+state.srcCodes.map(c => { const x = (state.srcInfo || {})[c] || {};
           return '<li><span><b>'+esc(c)+'</b> · '+esc(x.kind || "")+'<br><small>'+(x.n || 0)+' lignes · '+(x.q || 0)+' articles'+(x.at ? ' · '+new Date(x.at).toLocaleString("fr-FR", {day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit"}) : '')+'</small></span><button class="bw-x" data-rm="'+esc(c)+'" title="Retirer">✕</button></li>'; }).join("")+'</ul>' : '')+
         (has ? '<p class="bw-ok">Total mission : <b>'+state.lines.length+'</b> lignes · <b>'+sum(state.lines)+'</b> articles · <b>'+new Set(state.lines.map(l => l.zone)).size+'</b> zones · <b>'+(state.srcCodes || []).length+'</b> source'+((state.srcCodes || []).length > 1 ? 's' : '')+'</p>' : '')+
         (has && bureauDupZones().length ? '<p class="bw-msg">Attention : zone'+(bureauDupZones().length > 1 ? 's' : '')+' comptée'+(bureauDupZones().length > 1 ? 's' : '')+' sur plusieurs terminaux : '+esc(bureauDupZones().join(", "))+'. Vérifie qu’il ne s’agit pas d’un double comptage.</p>' : '')+
-        '<button class="btn" id="bwMerge">Ajouter un export Excel d’un autre terminal</button>'+
+
         (has ? '<button class="btn" id="bwReset">Vider et recommencer</button>' : '')+'</section>'+
       '<section><h3>2. Stock théorique du client</h3><p>'+(master ? '<b>'+esc(master.file)+'</b> : '+master.items.length+' références' : 'Facultatif : ajoute les désignations, les écarts et la valorisation.')+'</p>'+
         '<button class="btn" id="bwMaster"'+(has ? '' : ' disabled')+'>'+(master ? 'Voir / remplacer le fichier' : 'Charger le fichier du client')+'</button></section>'+
@@ -1631,7 +1641,7 @@ body:not(.control) .ctrlsrc{display:none}
     $("bwLoad").onclick = () => bureauLoad($("bwCode").value, has);
     $("bureau").querySelectorAll("[data-rm]").forEach(b => b.onclick = () => bureauRemove(b.dataset.rm));
     if($("bwReset")) $("bwReset").onclick = () => { const c = state.company; state = Object.assign(blank(), {company: c, loggedIn: true, backup: false}); save(); renderBureau(); };
-    $("bwMerge").onclick = () => pickMergeFile();
+
     $("bwMaster").onclick = () => masterSheet();
     $("bwInfo").onclick = () => infoSheet(false);
     $("bwSig").onclick = () => sigSheet(); $("bwPlan").onclick = () => planSheet(); $("bwLbl").onclick = () => labelsSheet();
@@ -2360,19 +2370,17 @@ body:not(.control) .ctrlsrc{display:none}
       '<div class="msec">Mission</div>'+
       '<label class="mfield">Client ou mission<input id="mn" value="'+esc(state.mission)+'" autocomplete="off" placeholder="Nom du client"></label>'+
       '<div class="mexp '+(isExported() ? 'ok">Mission exportée' : 'no">Pas encore exportée depuis la dernière modification')+'</div>'+
-      row("xX", "xls", "Exporter Excel", "Total, détail par zone, journal ("+(state.log||[]).length+")")+
+      row("xX", "xls", state.team ? "Exporter Excel (tout l’inventaire)" : "Exporter Excel", "Total, détail par zone, journal ("+(state.log||[]).length+")")+
       row("xC", "csv", "Exporter CSV", "")+
       (isAdmin() ? row("xPlan", "arch", "Plan de zones", (planProgress() ? planProgress().done + " / " + planProgress().total + " zones faites" : "Zones prévues et avancement")) : '')+
       (isAdmin() ? row("xLbl", "csv", "Étiquettes de zones", "Planche A4 de codes-barres à imprimer") : '')+
       (isAdmin() ? row("xRepHub", "csv", "Rapport", "Signatures · informations du rapport · rapport client PDF") : '')+
-      row("xBk", "drive", "Sauvegarde serveur", bkCode() + " · " + bkStatus(), BK.err ? "" : (bkOn() && BK.last ? "on" : ""))+
+      (isAdmin() ? row("xBk", "drive", "Sauvegarde de secours", "Restauration en cas de panne · " + bkStatus(), BK.err ? "" : (bkOn() && BK.last ? "on" : "")) : '')+
       '<div class="msec">Outils</div>'+
       row("xCtrl", "ctrl", "CONTRÔLE", controlMode ? "Activé" : "Vérifier sans compter", controlMode ? "on" : "")+
       (isAdmin() ? row("xMaster", "db", "Stock théorique", master ? master.items.length + " références chargées" : "Charger le fichier client") : '')+
       (master && isAdmin() ? row("xEc", "ec", "Écarts", "Compté / théorique") : '')+
-      row("xTeam", "team", "Équipe en ligne", state.team ? "Code " + esc(state.team.code) : "Compter à plusieurs")+
-      row("xDrive", "drive", "Google Drive", driveEnabled() ? "Connecté" : "Sauvegarde automatique", driveEnabled() ? "on" : "")+
-      row("xMerge", "merge", "Fusionner un export", "Depuis un autre téléphone", "red")+
+      (isAdmin() && state.team ? row("xTeam", "team", "Inventaire " + esc(state.team.code), "Terminaux connectés · suppression des données en ligne") : '')+
       row("xArch", "arch", "Missions archivées", String(loadArch().length))+
       row("xScan", "beep", "Scanner et terminal", "Réglage DataWedge, épinglage, écran allumé")+
       (isAdmin() ? row("xUsers", "team", "Administrateurs", "Accès par PIN") : '')+
@@ -2387,15 +2395,13 @@ body:not(.control) .ctrlsrc{display:none}
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 71 du 17/11/2026</p>');
+      '<p class="mver">Version 72 du 17/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
-    $("xX").onclick = () => { keep(); exportXlsx().then(ok => { if(ok && sheetOpen) $("menuBtn").click(); }); };
+    $("xX").onclick = () => { keep(); (state.team ? exportTeam() : exportXlsx()).then(ok => { if(ok && sheetOpen) $("menuBtn").click(); }); };
     $("xArch").onclick = () => { keep(); archSheet(); };
-    $("xMerge").onclick = () => { keep(); pickMergeFile(); };
-    $("xTeam").onclick = () => { keep(); teamSheet(); };
-    $("xDrive").onclick = () => { keep(); driveSheet(); };
+    if($("xTeam")) $("xTeam").onclick = () => { keep(); teamSheet(); };
     if($("xMaster")) $("xMaster").onclick = () => { keep(); masterSheet(); };
     $("xOff").onclick = () => { keep(); logOffSheet(); };
 
@@ -2403,7 +2409,7 @@ body:not(.control) .ctrlsrc{display:none}
     if($("xPlan")) $("xPlan").onclick = () => { keep(); planSheet(); };
     if($("xLbl")) $("xLbl").onclick = () => { keep(); labelsSheet(); };
     if($("xRepHub")) $("xRepHub").onclick = () => { keep(); reportHub(); };
-    $("xBk").onclick = () => { keep(); backupSheet(); };
+    if($("xBk")) $("xBk").onclick = () => { keep(); backupSheet(); };
     $("xScan").onclick = () => { keep(); scannerSheet(); };
     if($("xUsers")) $("xUsers").onclick = () => { keep(); usersSheet(); };
     $("xCtrl").onclick = () => { keep(); closeSheet(); setControl(!controlMode); };
@@ -3036,20 +3042,21 @@ body:not(.control) .ctrlsrc{display:none}
       if(ok && src !== "cache"){ state.teamExportedAt = new Date().toISOString(); state.teamExportedN = lines.length; save(); }
       if(ok && src === "cache") flash("Export fait SANS réseau : les derniers scans des autres téléphones peuvent manquer.", "bad");
       if(ok && dbl.length) flash("Export équipe fait. Attention : " + dbl.length + " zone(s) comptée(s) par plusieurs personnes (onglet Contrôles).", "bad");
-    }catch(e){ beep(false); flash(errMsg(e), "bad"); }
+      return ok;
+    }catch(e){ beep(false); flash(errMsg(e), "bad"); return false; }
   }
   /* Suppression en ligne : réservée au responsable, mission clôturée partout, équipe exportée, PIN + code */
   async function deleteGuard(){
     const block = (t, extra) => { beep(false); openSheet('<h2>Suppression impossible</h2>'+t+(extra || '')+'<div class="btnrow"><button class="btn" id="dgNo">Fermer</button></div>'); $("dgNo").onclick = () => teamSheet(); };
-    if(!isAdmin()){ block('<p>Seul un <b>administrateur</b> peut supprimer les données en ligne : fais log off puis log on en cochant « Connexion administrateur ».</p>'); return; }
+    if(!isAdmin()){ block('<p>Seul un <b>administrateur</b> peut supprimer les données en ligne : fais log off puis log on en cochant « Administrateur ».</p>'); return; }
     if(!state.finished){ block('<p>Clôture d’abord la mission sur ce terminal (Menu › Clôturer la mission).</p>'); return; }
     flash("Vérification de l’équipe…", "");
     let devs = [];
     try{ await fbInit(); const ds = await mref().collection("devices").get({source: "server"}); ds.forEach(d => devs.push(Object.assign({id: d.id}, d.data()))); }
     catch(e){ block('<p>Impossible de vérifier l’équipe : '+esc(errMsg(e))+'. Réessaie avec du réseau.</p>'); return; }
-    const open = devs.filter(d => d.id !== deviceId && d.id !== "plan" && !d.finished);
+    const open = devs.filter(d => d.id !== deviceId && d.id !== "plan" && !d.backup && !d.finished);
     if(open.length){ block('<p>Ces terminaux n’ont <b>pas encore clôturé</b> la mission :</p><ul>'+open.map(d => '<li><b>'+esc(d.who || ("appareil " + d.id))+'</b> · '+(d.lines || 0)+' lignes · dernier envoi '+(d.at ? new Date(d.at).toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"}) : "?")+'</li>').join("")+'</ul><p>Chacun doit faire Menu › Clôturer la mission, avec du réseau.</p>'); return; }
-    if(!state.teamExportedAt){ block('<p>Fais d’abord <b>« Exporter toute l’équipe »</b> avec du réseau : c’est la seule copie complète une fois les données en ligne supprimées.</p>'); return; }
+    if(!state.teamExportedAt){ block('<p>Fais d’abord <b>« Exporter Excel (tout l’inventaire) »</b> avec du réseau : c’est la seule copie complète une fois les données en ligne supprimées.</p>'); return; }
     openSheet('<h2>Supprimer les données en ligne ?</h2><div class="expst no">Action définitive : tous les scans de la mission '+esc(state.team.code)+' seront effacés du serveur, pour tous les terminaux.</div>'+
       '<p>Export équipe fait le '+new Date(state.teamExportedAt).toLocaleString("fr-FR")+'. Les comptages restent sur chaque terminal et dans les fichiers exportés.</p>'+
       '<label>Ton PIN administrateur<input id="dgPin" type="password" inputmode="numeric" maxlength="6"></label>'+
@@ -3201,7 +3208,7 @@ body:not(.control) .ctrlsrc{display:none}
     renderCtrlSrc();
     if(CTRL.again){ CTRL.again = false; await ctrlRefresh(false); }
     done();
-    if(first && !state.team && !(state.ctrlCodes || []).length && !state.lines.length) ctrlSourcesSheet();
+
   }
   const ctrlLines = () => state.lines.concat(CTRL.lines);
   function renderCtrlSrc(){
@@ -3209,8 +3216,7 @@ body:not(.control) .ctrlsrc{display:none}
     if(!controlMode){ el.hidden = true; return; }
     el.hidden = false;
     const n = (state.team ? 1 : 0) + (state.ctrlCodes || []).length;
-    el.innerHTML = '<span>Données contrôlées : <b>'+(state.lines.length ? 'ce terminal' : '')+(state.lines.length && n ? ' + ' : '')+(n ? n + ' source' + (n > 1 ? 's' : '') : (state.lines.length ? '' : 'aucune'))+'</b> · '+ctrlLines().reduce((a, l) => a + l.qty, 0)+' articles'+(CTRL.busy ? ' · mise à jour…' : CTRL.at ? ' · à jour ' + new Date(CTRL.at).toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"}) : '')+(CTRL.err ? ' · <b style="color:var(--bad)">'+esc(CTRL.err)+'</b>' : '')+'</span><button class="btn" id="ctrlSrcBtn">Sources</button>';
-    $("ctrlSrcBtn").onclick = ctrlSourcesSheet;
+    el.innerHTML = '<span>Données contrôlées : <b>'+(state.lines.length ? 'ce terminal' : '')+(state.lines.length && n ? ' + ' : '')+(n ? n + ' source' + (n > 1 ? 's' : '') : (state.lines.length ? '' : 'aucune'))+'</b> · '+ctrlLines().reduce((a, l) => a + l.qty, 0)+' articles'+(CTRL.busy ? ' · mise à jour…' : CTRL.at ? ' · à jour ' + new Date(CTRL.at).toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"}) : '')+(CTRL.err ? ' · <b style="color:var(--bad)">'+esc(CTRL.err)+'</b>' : '')+'</span>';
   }
   function ctrlSourcesSheet(){
     openSheet('<h2>Données à contrôler</h2><p>Le contrôle vérifie les comptages faits sur <b>les autres terminaux</b>. Ajoute le code K… de chaque terminal qui a compté (Menu › Sauvegarde serveur sur ce terminal), ou le code d’équipe.'+(state.team ? ' Ce terminal est dans l’équipe ' + esc(state.team.code) + ' : ses comptages sont inclus automatiquement.' : '')+'</p>'+
@@ -3233,7 +3239,7 @@ body:not(.control) .ctrlsrc{display:none}
       const z = code.toUpperCase(), zl = ctrlLines().filter(l => l.zone === z);
       const done = zl.length > 0 || (state.closed || []).includes(z) || CTRL.closed.has(z) || !!((state.zoneTimes || {})[z]);
       if(done){ beep(true, "zone"); flash("✓ Zone " + z + " FAITE : " + fmtLines(zl.length) + ", " + fmtQty(sum(zl)) + ".", "ok"); zoneDetail(z, "code", zl); }
-      else { beep(false); flash("✗ Zone " + z + " PAS ENCORE comptée" + (CTRL.lines.length || state.lines.length ? "." : " (aucune donnée chargée : touche « Sources »)."), "bad"); }
+      else { beep(false); flash("✗ Zone " + z + " PAS ENCORE comptée" + (CTRL.lines.length || state.lines.length ? "." : " (aucune donnée : vérifie le code inventaire et le réseau)."), "bad"); }
       return;
     }
     const hits = ctrlLines().filter(l => normCode(l.code) === normCode(code));

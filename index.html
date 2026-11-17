@@ -545,7 +545,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
 .bw-tabs{display:flex;border-bottom:1px solid #e4e8ea}
 .bw-tabs button{flex:1;border:0;background:#f4f6f7;padding:12px;font:inherit;font-size:14px;font-weight:600;color:#555;cursor:pointer;border-bottom:3px solid transparent}
 .bw-tabs button.on{background:#fff;color:#0F4C5C;border-bottom-color:#E8A33D}
-.bw-live{max-width:1100px;margin:0 auto}
+.bw-live{max-width:1400px;margin:0 auto}
 .lv-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
 .lv-kpis div{background:#fff;border-top:3px solid #0F4C5C;padding:12px 14px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
 .lv-kpis b{display:block;font-size:26px;color:#0F4C5C}.lv-kpis span{font-size:12px;color:#555}
@@ -557,6 +557,33 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
 .ctrlsrc{display:flex;align-items:center;gap:8px;font-size:13px;background:#E3ECF8;color:#1F4E8C;padding:4px 8px}
 .ctrlsrc[hidden]{display:none}.ctrlsrc span{flex:1}.ctrlsrc .btn{padding:6px 10px;font-size:13px;width:auto}
 body:not(.control) .ctrlsrc{display:none}
+
+.lv-kpis.lv6{grid-template-columns:repeat(6,1fr)}
+.lv-kpis div.warn{border-top-color:#B3261E}.lv-kpis div.warn b{color:#B3261E}
+.lv-prog{display:flex;align-items:center;gap:12px;margin:0 0 14px}.lv-prog .lv-bar{flex:1;margin:0}.lv-prog span{font-size:13px;color:#333;white-space:nowrap}
+.lv-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.lv-card{background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.08);padding:12px 14px;margin-bottom:12px}
+.lv-grid .lv-card{margin-bottom:0}
+.lv-card h3{margin:0 0 8px;font-size:14px;color:#0F4C5C;text-transform:uppercase;letter-spacing:.03em}
+.lv-card .lv-t{box-shadow:none}
+.lv-anom{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;max-height:320px;overflow:auto}
+.lv-anom li{font-size:13px;padding:6px 8px;border-left:4px solid #999;background:#f6f7f8}
+.lv-anom li.high{border-color:#B3261E;background:#FBE4E2}.lv-anom li.mid{border-color:#E8A33D;background:#FDF3E2}.lv-anom li.low{border-color:#7a8a90}
+.lv-ok{color:#1F6E3A;font-weight:600;margin:0}
+.lv-filt{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.lv-filt button{border:1px solid #cfd6d9;background:#f6f7f8;padding:6px 10px;font:inherit;font-size:13px;cursor:pointer}
+.lv-filt button.on{background:#0F4C5C;color:#fff;border-color:#0F4C5C}
+.lv-zones{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px}
+.lv-z{border:1px solid #d5dde0;border-top:4px solid #cfd6d9;padding:8px 10px;display:flex;flex-direction:column;gap:5px;font-size:12px;background:#fff}
+.lv-z.on{border-top-color:#2E9E5B}.lv-z.fin{border-top-color:#0F4C5C}.lv-z.idle{border-top-color:#E8A33D}.lv-z.todo{background:#fafbfb;color:#777}
+.lv-z.anom{box-shadow:0 0 0 2px #B3261E inset}
+.lv-zh{display:flex;justify-content:space-between;align-items:center}.lv-zh b{font-size:16px}
+.lv-zbar{height:7px;background:#e3e8ea}.lv-zbar i{display:block;height:100%;background:#0F4C5C}.lv-z.on .lv-zbar i{background:#2E9E5B}.lv-z.idle .lv-zbar i{background:#E8A33D}
+.lv-zs{display:flex;gap:8px;flex-wrap:wrap}.lv-zs b{font-size:14px}
+.lv-zm{color:#666;font-size:11px}
+.lv-s.todo{background:#eef0f1;color:#666}
+.lv-t td.m{font-family:Consolas,monospace;font-size:12px}.lv-t td small{color:#777;font-family:Roboto,sans-serif}
+@media (max-width:1200px){.lv-kpis.lv6{grid-template-columns:repeat(3,1fr)}.lv-grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -1845,12 +1872,13 @@ body:not(.control) .ctrlsrc{display:none}
   setTimeout(adminsPull, 1500);
   window.addEventListener("online", () => setTimeout(adminsPull, 1000));
   /* ===== Suivi en direct (poste bureau) ===== */
-  const LIVE = {unsubs: [], rows: {}, zones: {}, plans: {}, timer: null};
+  const LIVE = {unsubs: [], rows: {}, zones: {}, plans: {}, lines: {}, logs: {}, timer: null, filter: "all"};
   function liveStop(){ LIVE.unsubs.forEach(u => { try{ u(); }catch(e){} }); LIVE.unsubs = []; clearInterval(LIVE.timer); LIVE.timer = null; }
   async function liveStart(){
-    liveStop(); LIVE.rows = {}; LIVE.zones = {}; LIVE.plans = {};
+    liveStop(); LIVE.rows = {}; LIVE.zones = {}; LIVE.plans = {}; LIVE.lines = {}; LIVE.logs = {};
     const codes = state.liveCodes || []; if(!codes.length){ renderLive(); return; }
     try{ await fbInit(); }catch(e){ renderLive("Connexion impossible : " + errMsg(e)); return; }
+    let t = null; const later = () => { clearTimeout(t); t = setTimeout(renderLive, 250); };
     codes.forEach(code => {
       const m = db.collection("missions").doc(code);
       LIVE.unsubs.push(m.collection("devices").onSnapshot(sn => {
@@ -1858,34 +1886,113 @@ body:not(.control) .ctrlsrc{display:none}
         sn.forEach(d => { const x = d.data();
           if(d.id === "plan"){ LIVE.plans[code] = x.plan || []; return; }
           if(d.id !== "backup" && x.backup) return;
-          if(d.id === "backup"){ let b = {}; try{ b = JSON.parse(x.backup); }catch(e){} LIVE.rows[code + "/backup"] = {code, who: x.who, lines: x.lines, qty: x.qty, at: x.at, zone: x.zone || b.zone || "", pph: x.pph, finished: x.finished, done: x.done || b.closed || []}; if((b.plan || []).length) LIVE.plans[code] = b.plan; return; }
-          LIVE.rows[code + "/" + d.id] = Object.assign({code}, x);
+          if(d.id === "backup"){
+            let b = {}; try{ b = JSON.parse(x.backup); }catch(e){}
+            LIVE.rows[code + "/backup"] = {code, dev: code, who: x.who, lines: x.lines, qty: x.qty, at: x.at, zone: x.zone || b.zone || "", pph: x.pph, finished: x.finished || b.finished, done: x.done || b.closed || []};
+            LIVE.lines[code + "/backup"] = (b.lines || []).map(l => ({zone: l.zone, code: l.code, qty: l.qty, t: l.t, src: l.src, who: l.who || x.who, dev: code}));
+            LIVE.logs[code + "/backup"] = (b.log || []).map(l => Object.assign({dev: code, who2: x.who}, l));
+            if((b.plan || []).length) LIVE.plans[code] = b.plan;
+            return;
+          }
+          LIVE.rows[code + "/" + d.id] = Object.assign({code, dev: d.id}, x);
         });
-        renderLive();
+        later();
       }, () => renderLive("Accès refusé ou code inconnu : " + code)));
-      LIVE.unsubs.push(m.collection("zones").onSnapshot(sn => { LIVE.zones[code] = {}; sn.forEach(d => { LIVE.zones[code][d.id] = d.data(); }); renderLive(); }, () => {}));
+      LIVE.unsubs.push(m.collection("zones").onSnapshot(sn => { LIVE.zones[code] = {}; sn.forEach(d => { LIVE.zones[code][d.id] = d.data(); }); later(); }, () => {}));
+      LIVE.unsubs.push(m.collection("lines").onSnapshot(sn => { const a = []; sn.forEach(d => { const x = d.data(); a.push({zone: x.zone, code: x.code, qty: x.qty, t: x.t, src: x.src, who: x.who, dev: x.device}); }); LIVE.lines[code + "/team"] = a; later(); }, () => {}));
+      LIVE.unsubs.push(m.collection("log").onSnapshot(sn => { const a = []; sn.forEach(d => a.push(Object.assign({dev: d.data().device}, d.data()))); LIVE.logs[code + "/team"] = a; later(); }, () => {}));
     });
     LIVE.timer = setInterval(() => renderLive(), 30000);
   }
+  function liveModel(){
+    const now = Date.now(), rows = Object.values(LIVE.rows);
+    const L = [].concat(...Object.values(LIVE.lines)), LOG = [].concat(...Object.values(LIVE.logs));
+    const plan = new Set(); Object.values(LIVE.plans).forEach(pl => pl.forEach(z => plan.add(z)));
+    const closed = new Set(), open = {};
+    rows.forEach(r => { (r.done || []).forEach(z => closed.add(z)); if(r.zone && !r.finished) open[r.zone] = {who: r.who, at: r.at, dev: r.dev}; });
+    Object.values(LIVE.zones).forEach(zs => Object.entries(zs).forEach(([z, x]) => { if(x.status === "closed") closed.add(z); else if(x.status === "open" && !open[z]) open[z] = {who: x.who, at: x.at, dev: x.device}; }));
+    const Z = {};
+    const zget = z => Z[z] = Z[z] || {z, lines: 0, qty: 0, refs: new Set(), devs: new Set(), who: new Set(), t0: null, t1: null, big: 0, man: 0};
+    L.forEach(l => { const x = zget(l.zone); x.lines++; x.qty += l.qty || 0; x.refs.add(normCode(l.code)); x.devs.add(l.dev); if(l.who) x.who.add(l.who); const t = Date.parse(l.t);
+      if(!isNaN(t)){ x.t0 = x.t0 == null ? t : Math.min(x.t0, t); x.t1 = x.t1 == null ? t : Math.max(x.t1, t); }
+      if((l.qty || 0) >= (parseInt(state.bigQty, 10) || 50)) x.big++; if(l.src === "manuel") x.man++; });
+    plan.forEach(z => zget(z)); Object.keys(open).forEach(z => zget(z)); closed.forEach(z => zget(z));
+    const doneQ = Object.values(Z).filter(x => closed.has(x.z) && x.qty).map(x => x.qty).sort((a, b) => a - b), med = doneQ.length ? doneQ[Math.floor(doneQ.length / 2)] : 0;
+    Object.values(Z).forEach(x => {
+      x.status = closed.has(x.z) ? "done" : open[x.z] ? "open" : x.lines ? "left" : "todo";
+      x.openBy = open[x.z];
+      x.pct = x.status === "done" ? 100 : x.status === "todo" ? 0 : med ? Math.min(95, Math.round(x.qty * 100 / med)) : 50;
+      x.dur = x.t0 != null ? (x.t1 - x.t0) : 0;
+      x.idle = x.t1 != null ? now - x.t1 : null;
+      x.pph = x.dur > 60000 ? Math.round(x.qty * 3600000 / x.dur) : null;
+      x.inPlan = !plan.size || plan.has(x.z);
+    });
+    /* anomalies */
+    const A = [], add = (lvl, txt, zone) => A.push({lvl, txt, zone});
+    Object.values(Z).forEach(x => {
+      if(x.devs.size > 1) add("high", "Zone " + x.z + " comptée sur " + x.devs.size + " terminaux (" + [...x.who].join(", ") + ") : risque de double comptage.", x.z);
+      if(x.status === "open" && x.idle != null && x.idle > 30 * 60000) add("mid", "Zone " + x.z + " ouverte sans scan depuis " + Math.round(x.idle / 60000) + " min (" + (x.openBy && x.openBy.who || "?") + ").", x.z);
+      if(x.status === "done" && !x.lines) add("mid", "Zone " + x.z + " fermée sans aucun article : zone vide ou oubli ?", x.z);
+      if(x.status === "left") add("mid", "Zone " + x.z + " commencée mais ni fermée ni ouverte (" + x.qty + " articles).", x.z);
+      if(plan.size && !plan.has(x.z) && x.lines) add("low", "Zone " + x.z + " hors du plan de zones.", x.z);
+      if(x.big) add("low", x.big + " ligne" + (x.big > 1 ? "s" : "") + " à quantité élevée en zone " + x.z + " : à vérifier.", x.z);
+      if(x.man) add("low", x.man + " code" + (x.man > 1 ? "s" : "") + " saisi" + (x.man > 1 ? "s" : "") + " à la main en zone " + x.z + ".", x.z);
+      if(med && x.status === "done" && x.qty > med * 4) add("low", "Zone " + x.z + " : " + x.qty + " articles, très au-dessus de la normale (" + med + ") : à contrôler.", x.z);
+    });
+    rows.forEach(r => { if(!r.finished && now - Date.parse(r.at) > 10 * 60000) add("mid", "Terminal " + (r.who || r.dev) + " sans activité depuis " + Math.round((now - Date.parse(r.at)) / 60000) + " min.", ""); });
+    const corr = {}; LOG.forEach(x => { if(/correct|supprim|annul|quantit|recompt|modif/i.test(x.action || "")){ const w = x.who || x.who2 || "?"; corr[w] = (corr[w] || 0) + 1; } });
+    Object.entries(corr).forEach(([w, n]) => { if(n >= 5) add("low", n + " corrections faites par " + w + " : surveiller la qualité.", ""); });
+    if(master){
+      const unk = new Map(); L.forEach(l => { if(!itemOf(l.code)){ unk.set(normCode(l.code), (unk.get(normCode(l.code)) || 0) + (l.qty || 0)); } });
+      if(unk.size) add("low", unk.size + " code" + (unk.size > 1 ? "s" : "") + " scanné" + (unk.size > 1 ? "s" : "") + " absent" + (unk.size > 1 ? "s" : "") + " du fichier client.", "");
+    }
+    const order = {high: 0, mid: 1, low: 2}; A.sort((a, b) => order[a.lvl] - order[b.lvl]);
+    const tq = L.reduce((a, l) => a + (l.qty || 0), 0), refs = new Set(L.map(l => normCode(l.code))).size;
+    const ts = L.map(l => Date.parse(l.t)).filter(x => !isNaN(x)), t0 = ts.length ? Math.min(...ts) : null;
+    const act = rows.filter(r => !r.finished && now - Date.parse(r.at) < 10 * 60000);
+    const zs = Object.values(Z).sort((a, b) => a.z.localeCompare(b.z, "fr", {numeric: true}));
+    const doneN = zs.filter(x => x.status === "done").length, totalN = plan.size || zs.length;
+    const durs = zs.filter(x => x.status === "done" && x.dur > 0).map(x => x.dur), avgDur = durs.length ? durs.reduce((a, b) => a + b, 0) / durs.length : 0;
+    const remaining = plan.size ? [...plan].filter(z => !closed.has(z)).length : 0;
+    const eta = avgDur && remaining && act.length ? remaining * avgDur / act.length : 0;
+    const recent = L.filter(l => l.t).sort((a, b) => String(b.t).localeCompare(String(a.t))).slice(0, 12);
+    return {now, rows, L, Z: zs, A, tq, refs, t0, act, doneN, totalN, plan, remaining, eta, med, recent, pph: t0 && now > t0 ? Math.round(tq * 3600000 / (now - t0)) : 0};
+  }
   function renderLive(msg){
     const el = $("bwLive"); if(!el) return;
-    const rows = Object.values(LIVE.rows), now = Date.now();
-    const ago = t => { const m = Math.round((now - Date.parse(t)) / 60000); return isNaN(m) ? "?" : m < 1 ? "à l’instant" : m < 60 ? "il y a " + m + " min" : "il y a " + Math.floor(m / 60) + " h " + String(m % 60).padStart(2, "0"); };
-    const done = new Set(), plan = new Set();
-    rows.forEach(r => (r.done || []).forEach(z => done.add(z)));
-    Object.values(LIVE.zones).forEach(zs => Object.entries(zs).forEach(([z, x]) => { if(x.status === "closed") done.add(z); }));
-    Object.values(LIVE.plans).forEach(pl => pl.forEach(z => plan.add(z)));
-    const tq = rows.reduce((a, r) => a + (r.qty || 0), 0), tl = rows.reduce((a, r) => a + (r.lines || 0), 0), act = rows.filter(r => !r.finished && now - Date.parse(r.at) < 10 * 60000).length;
-    const pd = plan.size ? [...plan].filter(z => done.has(z)).length : 0;
+    const M = liveModel(), now = M.now, n = x => Number(x || 0).toLocaleString("fr-FR");
+    const ago = t => { const m = Math.round((now - (typeof t === "number" ? t : Date.parse(t))) / 60000); return isNaN(m) ? "?" : m < 1 ? "à l’instant" : m < 60 ? m + " min" : Math.floor(m / 60) + " h " + String(m % 60).padStart(2, "0"); };
+    const hm = t => t ? new Date(t).toLocaleTimeString("fr-FR", {hour: "2-digit", minute: "2-digit"}) : "—";
+    const ST = {done: ["Faite", "fin"], open: ["En cours", "on"], left: ["Non fermée", "idle"], todo: ["À faire", "todo"]};
+    const f = LIVE.filter, zs = M.Z.filter(x => f === "all" || x.status === f || (f === "anom" && M.A.some(a => a.zone === x.z)));
+    const cnt = s => M.Z.filter(x => x.status === s).length;
     el.innerHTML = (msg ? '<p class="bw-msg">'+esc(msg)+'</p>' : '')+
-      '<div class="lv-kpis"><div><b>'+tq.toLocaleString("fr-FR")+'</b><span>articles comptés</span></div><div><b>'+tl.toLocaleString("fr-FR")+'</b><span>lignes</span></div><div><b>'+act+' / '+rows.length+'</b><span>terminaux actifs</span></div>'+
-        '<div><b>'+(plan.size ? pd + ' / ' + plan.size : done.size)+'</b><span>'+(plan.size ? 'zones faites (plan)' : 'zones fermées')+'</span></div></div>'+
-      (plan.size ? '<div class="lv-bar"><i style="width:'+Math.round(pd * 100 / plan.size)+'%"></i></div>' : '')+
-      (rows.length ? '<table class="lv-t"><thead><tr><th>Terminal</th><th>Statut</th><th>Zone en cours</th><th class="r">Articles</th><th class="r">Lignes</th><th class="r">PPH</th><th>Dernière activité</th></tr></thead><tbody>'+
-        rows.sort((a, b) => String(a.who).localeCompare(String(b.who))).map(r => { const idle = now - Date.parse(r.at) > 10 * 60000, st = r.finished ? '<span class="lv-s fin">Clôturé</span>' : idle ? '<span class="lv-s idle">Inactif</span>' : '<span class="lv-s on">En cours</span>';
-          return '<tr><td><b>'+esc(r.who || "Terminal")+'</b><br><small>'+esc(r.code)+'</small></td><td>'+st+'</td><td>'+esc(r.zone || "—")+'</td><td class="r">'+(r.qty || 0).toLocaleString("fr-FR")+'</td><td class="r">'+(r.lines || 0).toLocaleString("fr-FR")+'</td><td class="r">'+(r.pph ? Math.round(r.pph) : "—")+'</td><td>'+ago(r.at)+'</td></tr>'; }).join("")+'</tbody></table>' : '<p class="bw-empty" style="padding-top:40px">Ajoute le code d’équipe ou les codes K… des terminaux pour suivre la mission en direct.</p>')+
-      (plan.size && [...plan].some(z => !done.has(z)) ? '<p class="lv-todo"><b>Zones restantes :</b> '+esc([...plan].filter(z => !done.has(z)).sort().join(" "))+'</p>' : '')+
-      '<p class="bw-tip">Mise à jour automatique. Hors équipe, chaque terminal envoie son état environ 15 secondes après chaque scan.</p>';
+      '<div class="lv-kpis lv6">'+
+        '<div><b>'+n(M.tq)+'</b><span>articles comptés</span></div>'+
+        '<div><b>'+n(M.refs)+'</b><span>références · '+n(M.L.length)+' lignes</span></div>'+
+        '<div><b>'+M.doneN+' / '+M.totalN+'</b><span>zones faites'+(M.plan.size ? ' (plan)' : '')+'</span></div>'+
+        '<div><b>'+M.act.length+' / '+M.rows.length+'</b><span>terminaux actifs</span></div>'+
+        '<div><b>'+(M.pph ? n(M.pph) : "—")+'</b><span>PPH équipe · début '+hm(M.t0)+'</span></div>'+
+        '<div class="'+(M.A.some(a => a.lvl === "high") ? 'warn' : '')+'"><b>'+M.A.length+'</b><span>anomalie'+(M.A.length > 1 ? 's' : '')+'</span></div></div>'+
+      (M.totalN ? '<div class="lv-prog"><div class="lv-bar"><i style="width:'+Math.round(M.doneN * 100 / Math.max(1, M.totalN))+'%"></i></div><span>'+Math.round(M.doneN * 100 / Math.max(1, M.totalN))+' %'+(M.eta ? ' · fin estimée vers '+hm(now + M.eta)+' ('+M.remaining+' zone'+(M.remaining > 1 ? 's' : '')+' restante'+(M.remaining > 1 ? 's' : '')+')' : '')+'</span></div>' : '')+
+      '<div class="lv-grid"><section class="lv-card"><h3>Anomalies à vérifier</h3>'+
+        (M.A.length ? '<ul class="lv-anom">'+M.A.slice(0, 40).map(a => '<li class="'+a.lvl+'">'+esc(a.txt)+'</li>').join("")+'</ul>'+(M.A.length > 40 ? '<p class="bw-tip">… et '+(M.A.length - 40)+' autres.</p>' : '') : '<p class="lv-ok">Aucune anomalie détectée.</p>')+'</section>'+
+      '<section class="lv-card"><h3>Terminaux</h3>'+
+        (M.rows.length ? '<table class="lv-t"><thead><tr><th>Terminal</th><th>Statut</th><th>Zone</th><th class="r">Articles</th><th class="r">PPH</th><th>Activité</th></tr></thead><tbody>'+
+          M.rows.slice().sort((a, b) => String(a.who).localeCompare(String(b.who))).map(r => { const idle = now - Date.parse(r.at) > 10 * 60000, st = r.finished ? '<span class="lv-s fin">Clôturé</span>' : idle ? '<span class="lv-s idle">Inactif</span>' : '<span class="lv-s on">En cours</span>';
+            return '<tr><td><b>'+esc(r.who || "Terminal")+'</b></td><td>'+st+'</td><td>'+esc(r.zone || "—")+'</td><td class="r">'+n(r.qty)+'</td><td class="r">'+(r.pph ? Math.round(r.pph) : "—")+'</td><td>il y a '+ago(r.at)+'</td></tr>'; }).join("")+'</tbody></table>' : '<p class="bw-tip">Aucun terminal connecté.</p>')+
+      '</section></div>'+
+      '<section class="lv-card"><h3>Zones</h3><div class="lv-filt">'+[["all","Toutes",M.Z.length],["open","En cours",cnt("open")],["todo","À faire",cnt("todo")],["left","Non fermées",cnt("left")],["done","Faites",cnt("done")],["anom","Avec anomalie",new Set(M.A.filter(a => a.zone).map(a => a.zone)).size]].map(([k, l, c]) => '<button data-lf="'+k+'" class="'+(f === k ? 'on' : '')+'">'+l+' <b>'+c+'</b></button>').join("")+'</div>'+
+        (zs.length ? '<div class="lv-zones">'+zs.map(x => { const s = ST[x.status], an = M.A.some(a => a.zone === x.z);
+          return '<div class="lv-z '+s[1]+(an ? ' anom' : '')+'"><div class="lv-zh"><b>'+esc(x.z)+'</b><span class="lv-s '+s[1]+'">'+s[0]+'</span></div>'+
+            '<div class="lv-zbar"><i style="width:'+x.pct+'%"></i></div>'+
+            '<div class="lv-zs"><span><b>'+n(x.qty)+'</b> art.</span><span>'+n(x.refs.size)+' réf.</span><span>'+n(x.lines)+' lignes</span></div>'+
+            '<div class="lv-zm">'+(x.who.size ? esc([...x.who].join(", ")) : (x.openBy ? esc(x.openBy.who || "") : "—"))+(x.t0 ? ' · '+hm(x.t0)+'–'+hm(x.t1)+(x.pph ? ' · PPH '+x.pph : '') : '')+(x.status === "open" && x.idle != null ? ' · dernier scan il y a '+ago(x.t1) : '')+(!x.inPlan ? ' · hors plan' : '')+'</div></div>'; }).join("")+'</div>' : '<p class="bw-tip">Aucune zone dans ce filtre.</p>')+
+        '<p class="bw-tip">Jauge : 100 % = zone fermée ; pour une zone en cours, estimation par rapport à la taille moyenne des zones déjà faites'+(M.med ? ' ('+n(M.med)+' articles)' : '')+'.</p></section>'+
+      '<section class="lv-card"><h3>Derniers scans</h3>'+(M.recent.length ? '<table class="lv-t"><thead><tr><th>Heure</th><th>Terminal</th><th>Zone</th><th>Code</th><th class="r">Qté</th></tr></thead><tbody>'+
+        M.recent.map(l => '<tr><td>'+hm(Date.parse(l.t))+'</td><td>'+esc(l.who || "")+'</td><td>'+esc(l.zone)+'</td><td class="m">'+esc(l.code)+(master && itemOf(l.code) ? ' <small>'+esc(nameOf(l.code).slice(0, 40))+'</small>' : '')+'</td><td class="r">'+n(l.qty)+'</td></tr>').join("")+'</tbody></table>' : '<p class="bw-tip">Aucun scan pour l’instant.</p>')+'</section>'+
+      '<p class="bw-tip">Mise à jour en direct (équipe) ; actualisation complète toutes les 30 s. '+(master ? 'Fichier client chargé : les codes inconnus sont signalés.' : 'Charge le stock théorique dans l’onglet Rapport pour détecter les codes inconnus.')+'</p>';
+    el.querySelectorAll("[data-lf]").forEach(b => b.onclick = () => { LIVE.filter = b.dataset.lf; renderLive(); });
   }
   /* ===== Scanner Zebra : guide de réglage ===== */
   function scannerSheet(){
@@ -2280,7 +2387,7 @@ body:not(.control) .ctrlsrc{display:none}
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 69 du 17/11/2026</p>');
+      '<p class="mver">Version 70 du 17/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

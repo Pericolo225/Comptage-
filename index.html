@@ -554,6 +554,9 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
 .lv-t th{background:#E2EEF0;text-align:left;padding:8px 10px;font-size:12px}.lv-t td{padding:8px 10px;border-top:1px solid #e6eaec;vertical-align:top}.lv-t .r{text-align:right}
 .lv-t small{color:#777}.lv-s{padding:2px 8px;font-size:12px;font-weight:600}.lv-s.on{background:#DDF1E3;color:#1F6E3A}.lv-s.idle{background:#FCEBD3;color:#8A5A12}.lv-s.fin{background:#E2E6E8;color:#444}
 .lv-todo{background:#fff;padding:10px 12px;margin-top:12px;font-size:14px}
+.ctrlsrc{display:flex;align-items:center;gap:8px;font-size:13px;background:#E3ECF8;color:#1F4E8C;padding:4px 8px}
+.ctrlsrc[hidden]{display:none}.ctrlsrc span{flex:1}.ctrlsrc .btn{padding:6px 10px;font-size:13px;width:auto}
+body:not(.control) .ctrlsrc{display:none}
 </style>
 </head>
 <body>
@@ -576,6 +579,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
   </div>
   <button class="team" id="team" hidden style="text-align:left"></button>
   <div class="flash" id="flash">Scanne l’étiquette de zone pour commencer.</div>
+  <div class="ctrlsrc" id="ctrlSrc" hidden></div>
   <div class="ctrlbar" id="ctrlbar">MODE CONTRÔLE CLIENT<small>Scanne une zone pour voir son détail, ou un article pour vérifier s’il est compté et où. Aucun comptage, aucune zone rouverte.</small></div>
 
   <div class="list" id="list"></div>
@@ -1909,8 +1913,8 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
   }
 
   /* Detail of a zone: every line in scan order, or totals per code */
-  function zoneDetail(z, mode){
-    const zl = linesOf(z);
+  function zoneDetail(z, mode, given){
+    const zl = given || linesOf(z);
     const modeLbl = l => l.src === "manuel" ? "saisi" : l.src === "camera" ? "caméra" : "scan";
     let rows;
     if(mode === "code"){
@@ -1929,8 +1933,8 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
       (zl.length ? '<div class="dlist">'+rows+'</div>' : '<p>Aucun article compté dans cette zone.</p>')+
       (mode==="code" || controlMode ? '' : '<p style="font-size:14px">Touche une ligne pour corriger sa quantité ou la supprimer.</p>')+
       '<div class="btnrow"><button class="btn" id="dBack">Retour aux zones</button><button class="btn" id="dNo">Fermer</button></div>');
-    $("dScan").onclick = () => zoneDetail(z, "scan");
-    $("dCode").onclick = () => zoneDetail(z, "code");
+    $("dScan").onclick = () => zoneDetail(z, "scan", given);
+    $("dCode").onclick = () => zoneDetail(z, "code", given);
     $("dBack").onclick = zonesSheet;
     $("dNo").onclick = closeSheet;
     $("sheet").querySelectorAll("[data-line]").forEach(b => b.onclick = () => { if(controlMode) return; editLine(+b.dataset.line, () => zoneDetail(z, "scan")); });
@@ -2216,7 +2220,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 65 du 17/11/2026</p>');
+      '<p class="mver">Version 66 du 17/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -3001,19 +3005,71 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
     $("manualCode").placeholder = on ? "Code à vérifier : tape-le ici" : "Code non scanné : tape-le ici";
     $("manualCode").setAttribute("inputmode", on ? "text" : "numeric");
     updateStatus();
-    if(on) flash("MODE CONTRÔLE activé : scanne une zone ou un article pour vérifier. Rien n’est compté, aucune zone n’est rouverte.", "zone");
-    else flash("Mode contrôle désactivé : retour au comptage.", "");
+    if(on){ flash("MODE CONTRÔLE activé : scanne une zone ou un article pour vérifier. Rien n’est compté, aucune zone n’est rouverte.", "zone"); ctrlRefresh(true); ctrlTimer = setInterval(() => ctrlRefresh(false), 60000); }
+    else { clearInterval(ctrlTimer); flash("Mode contrôle désactivé : retour au comptage.", ""); }
+    renderCtrlSrc();
+  }
+  /* Contrôle sur les comptages de TOUS les terminaux : équipe (automatique) + codes K… ajoutés */
+  const CTRL = {lines: [], closed: new Set(), at: 0, err: "", busy: false};
+  let ctrlTimer = null;
+  async function ctrlRefresh(first){
+    if(CTRL.busy){ CTRL.again = true; return CTRL.p; }
+    CTRL.busy = true; let done; CTRL.p = new Promise(r => { done = r; });
+    const lines = [], closed = new Set(); let err = "";
+    try{
+      if(state.team){ const t = await fetchTeam(); t.lines.forEach(l => { if(l.device !== deviceId) lines.push(l); }); Object.entries(teamZones || {}).forEach(([z, x]) => { if(x && x.status === "closed") closed.add(z); }); }
+      if((state.ctrlCodes || []).length){
+        await fbInit();
+        for(const code of state.ctrlCodes){
+          const m = db.collection("missions").doc(code), bk = await m.collection("devices").doc("backup").get({source: "server"});
+          if(bk.exists && bk.data().backup){ const b = JSON.parse(bk.data().backup); (b.lines || []).forEach(l => lines.push(Object.assign({}, l, {device: code}))); (b.closed || []).forEach(z => closed.add(z)); continue; }
+          const [ls, zs] = await Promise.all([m.collection("lines").get({source: "server"}), m.collection("zones").get({source: "server"})]);
+          if(!ls.size){ err = "Aucune donnée pour " + code + "."; continue; }
+          ls.forEach(d => { const x = d.data(); if(x.device !== deviceId) lines.push({zone: x.zone, code: x.code, qty: x.qty, device: code + ":" + x.device}); });
+          zs.forEach(d => { if(d.data().status === "closed") closed.add(d.id); });
+        }
+      }
+    }catch(e){ err = errMsg(e); }
+    CTRL.lines = lines; CTRL.closed = closed; CTRL.at = Date.now(); CTRL.err = err; CTRL.busy = false;
+    renderCtrlSrc();
+    if(CTRL.again){ CTRL.again = false; await ctrlRefresh(false); }
+    done();
+    if(first && !state.team && !(state.ctrlCodes || []).length && !state.lines.length) ctrlSourcesSheet();
+  }
+  const ctrlLines = () => state.lines.concat(CTRL.lines);
+  function renderCtrlSrc(){
+    const el = $("ctrlSrc"); if(!el) return;
+    if(!controlMode){ el.hidden = true; return; }
+    el.hidden = false;
+    const n = (state.team ? 1 : 0) + (state.ctrlCodes || []).length;
+    el.innerHTML = '<span>Données contrôlées : <b>'+(state.lines.length ? 'ce terminal' : '')+(state.lines.length && n ? ' + ' : '')+(n ? n + ' source' + (n > 1 ? 's' : '') : (state.lines.length ? '' : 'aucune'))+'</b> · '+ctrlLines().reduce((a, l) => a + l.qty, 0)+' articles'+(CTRL.busy ? ' · mise à jour…' : CTRL.at ? ' · à jour ' + new Date(CTRL.at).toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"}) : '')+(CTRL.err ? ' · <b style="color:var(--bad)">'+esc(CTRL.err)+'</b>' : '')+'</span><button class="btn" id="ctrlSrcBtn">Sources</button>';
+    $("ctrlSrcBtn").onclick = ctrlSourcesSheet;
+  }
+  function ctrlSourcesSheet(){
+    openSheet('<h2>Données à contrôler</h2><p>Le contrôle vérifie les comptages faits sur <b>les autres terminaux</b>. Ajoute le code K… de chaque terminal qui a compté (Menu › Sauvegarde serveur sur ce terminal), ou le code d’équipe.'+(state.team ? ' Ce terminal est dans l’équipe ' + esc(state.team.code) + ' : ses comptages sont inclus automatiquement.' : '')+'</p>'+
+      ((state.ctrlCodes || []).length ? '<div class="zlist">'+state.ctrlCodes.map(c => '<div class="zitem"><span class="zn num">'+esc(c)+'</span><div class="btnrow"><button class="btn" data-crm="'+esc(c)+'">Retirer</button></div></div>').join("")+'</div>' : '')+
+      '<label>Code d’un terminal ou d’équipe<input id="ctC" maxlength="6" autocomplete="off" autocapitalize="characters" placeholder="K51RJN"></label>'+
+      '<div class="btnrow"><button class="btn primary" id="ctAdd">Ajouter</button><button class="btn" id="ctRef">Actualiser</button></div>'+
+      '<p style="font-size:13px">Les terminaux envoient leurs comptages environ 15 secondes après chaque scan, à condition d’avoir du réseau. Le contrôle se met à jour toutes les minutes.</p>'+
+      '<div class="btnrow"><button class="btn" id="ctNo">Fermer</button></div>');
+    $("ctC").addEventListener("keydown", e => { e.stopPropagation(); if(e.key === "Enter") $("ctAdd").click(); });
+    $("ctAdd").onclick = () => { const c = $("ctC").value.trim().toUpperCase(); if(!/^[A-Z0-9]{6}$/.test(c)){ flash("Code de 6 caractères.", "bad"); return; }
+      if(c === bkCode()){ flash("C’est le code de ce terminal : ses comptages sont déjà inclus.", ""); return; }
+      state.ctrlCodes = [...new Set((state.ctrlCodes || []).concat(c))]; save(); closeSheet(); ctrlRefresh(false).then(() => flash(CTRL.err ? CTRL.err : "Comptages de " + c + " chargés.", CTRL.err ? "bad" : "ok")); };
+    $("ctRef").onclick = () => { closeSheet(); ctrlRefresh(false).then(() => flash(CTRL.err || "Contrôle à jour.", CTRL.err ? "bad" : "ok")); };
+    $("sheet").querySelectorAll("[data-crm]").forEach(b => b.onclick = () => { state.ctrlCodes = (state.ctrlCodes || []).filter(c => c !== b.dataset.crm); save(); ctrlRefresh(false); ctrlSourcesSheet(); });
+    $("ctNo").onclick = closeSheet;
   }
   function controlScan(code, src){
     code = String(code || "").replace(/\s+/g, ""); if(!code) return;
     if(zoneRegex().test(code)){
-      const z = code.toUpperCase(), zl = linesOf(z);
-      const done = zl.length > 0 || (state.closed || []).includes(z) || !!((state.zoneTimes || {})[z]);
-      if(done){ beep(true, "zone"); flash("✓ Zone " + z + " FAITE : " + fmtLines(zl.length) + ", " + fmtQty(sum(zl)) + ".", "ok"); zoneDetail(z, "code"); }
-      else { beep(false); flash("✗ Zone " + z + " PAS ENCORE comptée.", "bad"); }
+      const z = code.toUpperCase(), zl = ctrlLines().filter(l => l.zone === z);
+      const done = zl.length > 0 || (state.closed || []).includes(z) || CTRL.closed.has(z) || !!((state.zoneTimes || {})[z]);
+      if(done){ beep(true, "zone"); flash("✓ Zone " + z + " FAITE : " + fmtLines(zl.length) + ", " + fmtQty(sum(zl)) + ".", "ok"); zoneDetail(z, "code", zl); }
+      else { beep(false); flash("✗ Zone " + z + " PAS ENCORE comptée" + (CTRL.lines.length || state.lines.length ? "." : " (aucune donnée chargée : touche « Sources »)."), "bad"); }
       return;
     }
-    const hits = state.lines.filter(l => normCode(l.code) === normCode(code));
+    const hits = ctrlLines().filter(l => normCode(l.code) === normCode(code));
     const nm = master ? (nameOf(code) || "Inconnu du fichier client") : "";
     if(hits.length){
       const q = hits.reduce((a, l) => a + l.qty, 0), zones = [...new Set(hits.map(l => l.zone))].sort().join(" ");

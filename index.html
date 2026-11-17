@@ -958,8 +958,8 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
       '<div class="btnrow"><button class="btn" id="mcReopen">Rouvrir la mission</button><button class="btn" id="mcNew">Nouvelle mission</button></div>');
     $("sheet").classList.add("errsheet");
     $("mcOk").onclick = closeSheet;
-    $("mcReopen").onclick = reopenMission;
-    $("mcNew").onclick = () => { closeSheet(); newMissionSheet(); };
+    $("mcReopen").onclick = () => requireAdmin("Rouvrir la mission", reopenMission);
+    $("mcNew").onclick = () => requireAdmin("Nouvelle mission", newMissionSheet);
   }
   function finishMission(){
     if(cam.pending){ beep(false); flash("Valide ou ignore d’abord le code " + cam.pending + ".", "bad"); return; }
@@ -1119,6 +1119,28 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
   $("lgAdm").addEventListener("change", () => { $("lgPinL").hidden = !$("lgAdm").checked; $("lgPin2L").hidden = true; $("lgErr").textContent = ""; if($("lgAdm").checked) $("lgPin").focus(); });
   $("lgName").addEventListener("input", () => { $("lgPin2L").hidden = true; $("lgPin2").value = ""; });
   ["lgName","lgPin","lgPin2","lgBadge"].forEach(id => $(id).addEventListener("keydown", e => { e.stopPropagation(); if(e.key === "Enter"){ e.preventDefault(); doLogon(); } }));
+  /* Actions sensibles : code PIN d’un administrateur de ce terminal */
+  function requireAdmin(label, fn){
+    const admins = Object.values(loadUsers()).filter(u => u.admin);
+    if(!admins.length){
+      beep(false);
+      openSheet('<h2>'+esc(label)+'</h2><div class="expst no">Code administrateur requis, mais aucun administrateur n’est enregistré sur ce terminal.</div>'+
+        '<p>Pour en créer un : Menu › Log off, puis log on en cochant <b>« Connexion administrateur »</b> et en choisissant un PIN. Fais-le une fois sur chaque terminal, avec le même PIN.</p>'+
+        '<div class="btnrow"><button class="btn" id="raNo">Fermer</button></div>');
+      $("raNo").onclick = closeSheet; return;
+    }
+    openSheet('<h2>'+esc(label)+'</h2><p>Action réservée à l’administrateur : saisis le code PIN administrateur.</p>'+
+      '<label>Code PIN administrateur<input id="raPin" type="password" inputmode="numeric" maxlength="6" autocomplete="off"></label>'+
+      '<div class="btnrow"><button class="btn" id="raNo">Annuler</button><button class="btn primary" id="raOk">Valider</button></div>');
+    const go = async () => {
+      const pin = $("raPin").value.trim();
+      for(const u of admins){ if(await pinHash(pin, u.salt) === u.hash){ logAct(label + " (validé par " + u.name + ")", "", "", "", ""); save(); closeSheet(); fn(); return; } }
+      beep(false); $("raPin").value = ""; $("raPin").focus(); flash("Code administrateur incorrect.", "bad");
+    };
+    $("raPin").addEventListener("keydown", e => { e.stopPropagation(); if(e.key === "Enter"){ e.preventDefault(); go(); } });
+    $("raNo").onclick = closeSheet; $("raOk").onclick = go;
+    setTimeout(() => $("raPin").focus(), 50);
+  }
   function usersSheet(){
     const users = loadUsers(), me = ukey(state.counter || "");
     const admins = Object.entries(users).filter(([, u]) => u.admin).sort((a, b) => a[1].name.localeCompare(b[1].name));
@@ -1197,14 +1219,14 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
       '<p>La mission actuelle de ce terminal sera archivée (Menu › Missions archivées), puis remplacée.</p>'+
       '<div class="btnrow"><button class="btn" id="rsNo">Annuler</button><button class="btn primary" id="rsOk">Restaurer</button></div>');
     $("rsNo").onclick = closeSheet;
-    $("rsOk").onclick = () => {
+    $("rsOk").onclick = () => requireAdmin("Restaurer une sauvegarde", () => {
       let nst; try{ nst = JSON.parse(b.backup); }catch(e){ flash("Sauvegarde illisible.", "bad"); return; }
       if(!archiveCurrent()){ flash("Mémoire pleine : exporte puis supprime des archives avant de restaurer.", "bad"); return; }
       nst.loggedIn = false; delete nst.team; delete nst.sync;
       (nst.log = nst.log || []).push({t: new Date().toISOString(), action: "Restauration depuis " + code, zone: "", code: "", oldQ: "", newQ: "", who: ""});
       try{ localStorage.setItem(KEY, JSON.stringify(nst)); }catch(e){ flash("Mémoire pleine.", "bad"); return; }
       location.reload();
-    };
+    });
   }
   /* ===== Rapport client (PDF via impression) — somme de tous les terminaux ===== */
   function reportHTML(D){
@@ -1924,7 +1946,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 61 du 17/11/2026</p>');
+      '<p class="mver">Version 62 du 17/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -1943,8 +1965,8 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
     $("xCtrl").onclick = () => { keep(); closeSheet(); setControl(!controlMode); };
     if(master) $("xEc").onclick = () => { keep(); ecartsSheet("ec"); };
     $("xC").onclick = () => { keep(); exportCsv(); };
-    $("xNew").onclick = () => { keep(); newMissionSheet(); };
-    $("xFin").onclick = () => { keep(); state.finished ? reopenMission() : finishMission(); };
+    $("xNew").onclick = () => { keep(); requireAdmin("Nouvelle mission", newMissionSheet); };
+    $("xFin").onclick = () => { keep(); state.finished ? requireAdmin("Rouvrir la mission", reopenMission) : requireAdmin("Clôturer la mission", finishMission); };
   });
 
   /* Productivity */

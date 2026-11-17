@@ -1620,7 +1620,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
     openSheet('<h2>Étiquettes de zones</h2><p>Planche de codes-barres à imprimer sur papier adhésif A4. Chaque étiquette se scanne pour ouvrir sa zone.</p>'+
       '<label>Préfixe<input id="lbP" value="'+esc(px)+'" maxlength="4" autocomplete="off"></label>'+
       '<div class="btnrow"><label style="flex:1">De<input id="lbA" inputmode="numeric" value="1"></label><label style="flex:1">À<input id="lbB" inputmode="numeric" value="'+(pl.length || 40)+'"></label></div>'+
-      '<label>Format<select id="lbF">'+[["b62x40","Brother QL-820NWB · rouleau 62 mm (DK-22205) · 62 × 40 mm"],["b29x90","Brother QL-820NWB · rouleau 29 mm (DK-22210) · bande 29 × 90 mm, style rayon"],["b62x29","Brother QL-820NWB · prédécoupé DK-11209 · 62 × 29 mm"],["21","Planche A4 · 21 étiquettes 63,5 × 38,1 mm"],["24","Planche A4 · 24 étiquettes 70 × 37 mm"],["8","Planche A4 · 8 grandes étiquettes 105 × 74 mm"]].map(([v, t]) => '<option value="'+v+'"'+((state.lblFmt || "b62x40") === v ? ' selected' : '')+'>'+t+'</option>').join("")+'</select></label>'+
+      '<label>Format<select id="lbF">'+[["b62x40","Brother QL-820NWB · rouleau 62 mm (DK-22205) · 62 × 40 mm"],["b29x90","Brother QL-820NWB · rouleau 29 mm (DK-22210) · bande 29 × 90 mm, style rayon"],["b62x29","Brother QL-820NWB · prédécoupé DK-11209 · 62 × 29 mm"],["a29","Feuille A4 · 21 bandes 29 × 90 mm style rayon, à découper"],["21","Planche A4 · 21 étiquettes 63,5 × 38,1 mm"],["24","Planche A4 · 24 étiquettes 70 × 37 mm"],["8","Planche A4 · 8 grandes étiquettes 105 × 74 mm"]].map(([v, t]) => '<option value="'+v+'"'+((state.lblFmt || "b62x40") === v ? ' selected' : '')+'>'+t+'</option>').join("")+'</select></label>'+
       '<label class="chk"><input id="lbK" type="checkbox"'+(state.lblBox === false ? '' : ' checked')+'> Case « compté » à cocher sur l’étiquette</label>'+
       '<p id="lbHelp" style="font-size:13px;margin:0"></p>'+
       '<label class="chk"><input id="lbM" type="checkbox"'+(state.mission ? ' checked' : '')+'> Afficher le nom du client sur l’étiquette</label>'+
@@ -1628,7 +1628,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
       '<div class="btnrow"><button class="btn primary" id="lbGo">Imprimer / enregistrer en PDF</button></div><div class="btnrow"><button class="btn" id="lbNo">Fermer</button></div>');
     $("sheet").querySelectorAll("input,select").forEach(x => x.addEventListener("keydown", e => e.stopPropagation()));
     $("lbNo").onclick = () => BUREAU ? closeSheet() : $("menuBtn").click();
-    const help = () => { const v = $("lbF").value; $("lbHelp").innerHTML = v[0] === "b" ? 'Une étiquette par zone. À l’impression : imprimante <b>Brother QL-820NWB</b>, papier <b>'+({b62x40:"62 mm (continu), longueur 40 mm", b29x90:"29 mm (continu), longueur 90 mm", b62x29:"29 mm × 62 mm (DK-11209)"})[v]+'</b>, marges <b>aucune</b>, échelle <b>100 %</b>.' : 'Planche A4 : imprimante de bureau, marges <b>aucune</b>, échelle <b>100 %</b>.'; };
+    const help = () => { const v = $("lbF").value; $("lbHelp").innerHTML = v[0] === "b" ? 'Une étiquette par zone. À l’impression : imprimante <b>Brother QL-820NWB</b>, papier <b>'+({b62x40:"62 mm (continu), longueur 40 mm", b29x90:"29 mm (continu), longueur 90 mm", b62x29:"29 mm × 62 mm (DK-11209)"})[v]+'</b>, marges <b>aucune</b>, échelle <b>100 %</b>.' : v === "a29" ? 'Feuille A4 ordinaire ou adhésive, 21 bandes par page avec traits de coupe. Marges <b>aucune</b>, échelle <b>100 %</b>.' : 'Planche A4 : imprimante de bureau, marges <b>aucune</b>, échelle <b>100 %</b>.'; };
     $("lbF").onchange = help; help();
     const makeRoll = (list, v, mis, box) => {
       /* page = une étiquette ; la bande 29 × 90 est composée à l’horizontale puis tournée */
@@ -1645,6 +1645,16 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
     const make = list => {
       const v = $("lbF").value, showMis = $("lbM").checked, box = $("lbK").checked; closeSheet();
       state.lblFmt = v; state.lblBox = box;
+      if(v === "a29"){
+        const one = makeRoll(["X"], "b29x90", "", false).split("<div class=\"rp-page\">")[0].replace(/@page\{[^}]*\}/, "@page{size:A4;margin:0}");
+        const m2 = showMis ? esc(state.mission || "") : "";
+        let pages = "";
+        for(let i = 0; i < list.length; i += 21){
+          pages += '<div class="a29p">' + list.slice(i, i + 21).map(z => '<div class="a29c">'+makeRoll([z], "b29x90", m2, box).replace(/^<style>[\s\S]*?<\/style>/, "").replace('class="rp-page"', 'class="rp-page a29in"')+'</div>').join("") + '</div>';
+        }
+        printHTML(one + '<style>.a29p{width:210mm;height:297mm;box-sizing:border-box;padding:13.5mm 3.5mm 0;display:grid;grid-template-columns:repeat(7,29mm);grid-auto-rows:90mm;align-content:start;page-break-after:always;break-after:page}.a29c{outline:.2mm dashed #999;outline-offset:-.1mm}.a29in{page-break-after:auto!important;break-after:auto!important}</style>' + pages, "Etiquettes zones " + (state.mission || ""));
+        logAct("Étiquettes de zones imprimées (A4 bandes)", "", list[0] + "–" + list[list.length - 1], list.length, ""); save(); return;
+      }
       if(v[0] === "b"){
         printHTML(makeRoll(list, v, showMis ? esc(state.mission || "") : "", box), "Etiquettes zones " + (state.mission || ""));
         logAct("Étiquettes de zones imprimées (" + v + ")", "", list[0] + "–" + list[list.length - 1], list.length, ""); save(); return;
@@ -2206,7 +2216,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 64 du 17/11/2026</p>');
+      '<p class="mver">Version 65 du 17/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

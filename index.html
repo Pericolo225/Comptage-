@@ -2362,14 +2362,14 @@ body:not(.control) .ctrlsrc{display:none}
       '<div class="mexp '+(isExported() ? 'ok">Mission exportée' : 'no">Pas encore exportée depuis la dernière modification')+'</div>'+
       row("xX", "xls", "Exporter Excel", "Total, détail par zone, journal ("+(state.log||[]).length+")")+
       row("xC", "csv", "Exporter CSV", "")+
-      row("xPlan", "arch", "Plan de zones", (planProgress() ? planProgress().done + " / " + planProgress().total + " zones faites" : "Zones prévues et avancement"))+
-      row("xLbl", "csv", "Étiquettes de zones", "Planche A4 de codes-barres à imprimer")+
-      row("xRepHub", "csv", "Rapport", "Signatures · informations du rapport · rapport client PDF")+
+      (isAdmin() ? row("xPlan", "arch", "Plan de zones", (planProgress() ? planProgress().done + " / " + planProgress().total + " zones faites" : "Zones prévues et avancement")) : '')+
+      (isAdmin() ? row("xLbl", "csv", "Étiquettes de zones", "Planche A4 de codes-barres à imprimer") : '')+
+      (isAdmin() ? row("xRepHub", "csv", "Rapport", "Signatures · informations du rapport · rapport client PDF") : '')+
       row("xBk", "drive", "Sauvegarde serveur", bkCode() + " · " + bkStatus(), BK.err ? "" : (bkOn() && BK.last ? "on" : ""))+
       '<div class="msec">Outils</div>'+
       row("xCtrl", "ctrl", "CONTRÔLE", controlMode ? "Activé" : "Vérifier sans compter", controlMode ? "on" : "")+
-      row("xMaster", "db", "Stock théorique", master ? master.items.length + " références chargées" : "Charger le fichier client")+
-      (master ? row("xEc", "ec", "Écarts", "Compté / théorique") : '')+
+      (isAdmin() ? row("xMaster", "db", "Stock théorique", master ? master.items.length + " références chargées" : "Charger le fichier client") : '')+
+      (master && isAdmin() ? row("xEc", "ec", "Écarts", "Compté / théorique") : '')+
       row("xTeam", "team", "Équipe en ligne", state.team ? "Code " + esc(state.team.code) : "Compter à plusieurs")+
       row("xDrive", "drive", "Google Drive", driveEnabled() ? "Connecté" : "Sauvegarde automatique", driveEnabled() ? "on" : "")+
       row("xMerge", "merge", "Fusionner un export", "Depuis un autre téléphone", "red")+
@@ -2387,7 +2387,7 @@ body:not(.control) .ctrlsrc{display:none}
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 70 du 17/11/2026</p>');
+      '<p class="mver">Version 71 du 17/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -2396,18 +2396,18 @@ body:not(.control) .ctrlsrc{display:none}
     $("xMerge").onclick = () => { keep(); pickMergeFile(); };
     $("xTeam").onclick = () => { keep(); teamSheet(); };
     $("xDrive").onclick = () => { keep(); driveSheet(); };
-    $("xMaster").onclick = () => { keep(); masterSheet(); };
+    if($("xMaster")) $("xMaster").onclick = () => { keep(); masterSheet(); };
     $("xOff").onclick = () => { keep(); logOffSheet(); };
 
 
-    $("xPlan").onclick = () => { keep(); planSheet(); };
-    $("xLbl").onclick = () => { keep(); labelsSheet(); };
-    $("xRepHub").onclick = () => { keep(); reportHub(); };
+    if($("xPlan")) $("xPlan").onclick = () => { keep(); planSheet(); };
+    if($("xLbl")) $("xLbl").onclick = () => { keep(); labelsSheet(); };
+    if($("xRepHub")) $("xRepHub").onclick = () => { keep(); reportHub(); };
     $("xBk").onclick = () => { keep(); backupSheet(); };
     $("xScan").onclick = () => { keep(); scannerSheet(); };
     if($("xUsers")) $("xUsers").onclick = () => { keep(); usersSheet(); };
     $("xCtrl").onclick = () => { keep(); closeSheet(); setControl(!controlMode); };
-    if(master) $("xEc").onclick = () => { keep(); ecartsSheet("ec"); };
+    if($("xEc")) $("xEc").onclick = () => { keep(); ecartsSheet("ec"); };
     $("xC").onclick = () => { keep(); exportCsv(); };
     $("xNew").onclick = () => { keep(); requireAdmin("Nouvelle mission", newMissionSheet); };
     $("xFin").onclick = () => { keep(); state.finished ? requireAdmin("Rouvrir la mission", reopenMission) : requireAdmin("Clôturer la mission", finishMission); };

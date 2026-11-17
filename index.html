@@ -6,7 +6,7 @@
 <title>Comptage par zones</title>
 <script src="xlsx.full.min.js"></script>
 <link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#2F3A4A">
+<meta name="theme-color" content="#0F4C5C">
 <link rel="icon" href="logo-192.png">
 <style>
 @font-face{font-family:"Barlow";font-weight:400;font-display:swap;src:url(barlow-latin-400-normal.woff2) format("woff2")}
@@ -442,6 +442,27 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
 .logon .lgo{margin:14px;background:var(--brand);color:#fff;border-radius:0;font-size:17px;font-weight:500}
 .logon .lmeta{margin:0 14px;color:var(--muted)}
 .btn.logoff{background:var(--brand);border-color:var(--brand)}
+
+/* ===== v49 : identité propre (pétrole), distincte des outils du marché ===== */
+:root{ --brand:#0F4C5C; --brandSoft:#E2EEF0; --brandInk:#0B3A46; --act:#0F4C5C; --actSoft:#E2EEF0; }
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --brand:#0F3D49; --brandSoft:#16303A; --brandInk:#9FD3DF; --act:#2E8197; --actSoft:#16303A; }}
+:root[data-theme="dark"]{ --brand:#0F3D49; --brandSoft:#16303A; --brandInk:#9FD3DF; --act:#2E8197; --actSoft:#16303A; }
+.tbar{border-bottom:3px solid #E8A33D}
+.tl b{font-weight:700;letter-spacing:.01em}
+.head .status{background:var(--brandSoft);color:var(--brandInk);font-style:normal;font-weight:500;font-size:12px;justify-content:flex-start;padding:4px 12px 4px 26px;border-bottom:1px solid var(--line)}
+.head .status .dot{background:#2E9E5B}
+.head .status.off{background:#FBE4E2;color:#B3261E}
+.head .status.off .dot{background:#B3261E}
+.head .status.ctrl,.head .status.typing{background:#E3ECF8;color:#1F4E8C}
+.head .status.ctrl .dot,.head .status.typing .dot{background:#1F4E8C}
+.head .pph{color:inherit;font-weight:700;opacity:1}
+.cell strong,.row .q,.qty .val{font-style:normal!important}
+.cell small,.thead{letter-spacing:.02em}
+.row.latest{box-shadow:inset 3px 0 0 #E8A33D;background:color-mix(in srgb,#E8A33D 9%,var(--surface))}
+.flash.zone{border-left-color:#E8A33D}
+.ctrlbar{background:#1F4E8C}
+.logon h1{border-bottom:3px solid #E8A33D}
+.logon > p{background:var(--brandSoft);color:var(--brandInk);font-style:normal;text-align:left}
 </style>
 </head>
 <body>
@@ -1311,7 +1332,7 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 48 du 17/11/2026</p>');
+      '<p style="font-size:13px">Version 49 du 17/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

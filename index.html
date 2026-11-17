@@ -531,6 +531,10 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
 .bw-prev .rp[contenteditable]:focus{outline:2px dashed #E8A33D;outline-offset:6px}
 .bw-empty{color:#777;text-align:center;padding-top:120px}
 @media (max-width:900px){ body.bureau .bureau-ui{grid-template-columns:1fr} .bw-side{position:static;height:auto} }
+.bw-src{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.bw-src li{display:flex;align-items:center;gap:8px;border:1px solid #d5dde0;padding:6px 8px;font-size:13px}
+.bw-src li span{flex:1}.bw-src small{color:#666}
+.bw-x{border:0;background:none;color:#B3261E;font-size:16px;cursor:pointer;padding:4px 8px}
 </style>
 </head>
 <body>
@@ -1201,7 +1205,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
     h += '<header><div class="pr"><div class="pn">'+esc(C.name || "Prestation d’inventaire physique")+'</div><div class="pd">'+[esc(C.address || ""), C.siret ? "SIRET " + esc(C.siret) : "", esc(C.contact || "")].filter(Boolean).join(" · ")+'</div></div>'+
       '<div class="dt"><div class="dtt">RAPPORT D’INVENTAIRE</div><div class="dtn">N° '+ref+'</div></div></header>';
     const R = state.rep || {}, TYPES = {annuel:"Inventaire annuel (clôture d’exercice)", tournant:"Inventaire tournant", controle:"Contrôle ponctuel", reprise:"Inventaire de reprise / cession de fonds", autre:"Inventaire physique"};
-    const idc = [["Client", '<b>'+esc(state.mission || "—")+'</b>'], ["Date de l’inventaire", dLong(t0)]];
+    const idc = [["Client", '<b>'+esc(state.mission || "—")+'</b>'], ["Date de l’inventaire", t0.toDateString() === t1.toDateString() ? dLong(t0) : 'du ' + t0.toLocaleDateString("fr-FR") + ' au ' + t1.toLocaleDateString("fr-FR")]];
     if(R.store) idc.push(["Magasin / enseigne", esc(R.store)]);
     if(state.site) idc.push(["Adresse du site", esc(state.site)]);
     if(R.clientSiret) idc.push(["SIRET du client", esc(R.clientSiret)]);
@@ -1209,7 +1213,8 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
     if(R.type) idc.push(["Nature de l’inventaire", TYPES[R.type] || esc(R.type)]);
     if(R.fiscal) idc.push(["Clôture de l’exercice", new Date(R.fiscal).toLocaleDateString("fr-FR")]);
     if(R.contact) idc.push(["Responsable sur place", esc(R.contact)]);
-    idc.push(["Horaires de comptage", hm(t0)+' – '+hm(t1)+' ('+fmtDur(t1 - t0)+')']);
+    const sameDay = t0.toDateString() === t1.toDateString(), dm = x => x.toLocaleDateString("fr-FR", {day:"2-digit", month:"2-digit"});
+    idc.push([sameDay ? "Horaires de comptage" : "Période de comptage", sameDay ? hm(t0)+' – '+hm(t1)+' ('+fmtDur(t1 - t0)+')' : 'du '+dm(t0)+' '+hm(t0)+' au '+dm(t1)+' '+hm(t1)]);
     idc.push(["Statut", state.finished ? 'Inventaire clôturé' : 'Comptage en cours (provisoire)']);
     if(D.devices > 1 || D.src === "cache") idc.push(["Données consolidées", D.devices+(D.devices > 1 ? ' terminaux' : ' terminal')+(D.src === "cache" ? ' (hors ligne : données en cache)' : '')]);
     if(R.scope) idc.push(["Périmètre", esc(R.scope)]);
@@ -1380,33 +1385,60 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
   }
   /* ===== Poste bureau ===== */
   function bureauBoot(){ document.title = "Rapport d’inventaire — poste bureau"; renderBureau(); }
-  async function bureauLoad(code){
+  /* Charge un terminal (code K…) ou une équipe ; add = ajouter aux terminaux déjà chargés */
+  async function bureauLoad(code, add){
     code = String(code || "").trim().toUpperCase().replace(/\s+/g, "");
-    if(!/^[A-Z0-9]{6}$/.test(code)){ flash("Code invalide : 6 caractères (code K… du terminal ou code d’équipe).", "bad"); renderBureau("Code invalide : 6 caractères."); return; }
+    if(!/^[A-Z0-9]{6}$/.test(code)){ renderBureau("Code invalide : 6 caractères (code K… du terminal ou code d’équipe)."); return; }
+    if(add && (state.srcCodes || []).includes(code)){ renderBureau(code + " est déjà chargé."); return; }
     renderBureau("Chargement de " + code + "…");
     try{
       await fbInit();
-      const m = db.collection("missions").doc(code), keepS = settingsOf(state), company = state.company;
+      const m = db.collection("missions").doc(code);
       const bk = await m.collection("devices").doc("backup").get({source: "server"});
-      let st;
+      let src;
       if(bk.exists && bk.data().backup){
-        st = Object.assign(blank(), JSON.parse(bk.data().backup));
-        st.srcDevices = 1; st.srcLabel = "Sauvegarde du terminal " + code + " du " + new Date(bk.data().at).toLocaleString("fr-FR");
+        const b = JSON.parse(bk.data().backup);
+        src = {kind: "terminal", lines: (b.lines || []).map(l => Object.assign({}, l, {device: code})), log: b.log || [], meta: b, at: bk.data().at};
       } else {
         const [pd, ls, lg] = await Promise.all([m.get({source: "server"}), m.collection("lines").get({source: "server"}), m.collection("log").get({source: "server"})]);
         if(!ls.size){ renderBureau("Aucune donnée trouvée pour " + code + "."); return; }
-        const lines = [], log = []; let id = 1;
-        ls.forEach(d => { const x = d.data(); lines.push({id: id++, zone: x.zone, code: x.code, qty: x.qty, src: x.src || "scan", who: x.who || "", t: x.t, device: x.device}); });
+        const lines = [], log = [];
+        ls.forEach(d => { const x = d.data(); lines.push({zone: x.zone, code: x.code, qty: x.qty, src: x.src || "scan", who: x.who || "", t: x.t, device: code + ":" + x.device}); });
         lg.forEach(d => log.push(d.data()));
-        lines.sort((a, b) => String(a.t).localeCompare(String(b.t))); log.sort((a, b) => String(a.t).localeCompare(String(b.t)));
-        st = Object.assign(blank(), keepS, {mission: (pd.exists && pd.data().name) || "", lines, log, seq: id, zones: [...new Set(lines.map(l => l.zone))].sort(), startedAt: lines.length ? lines[0].t : new Date().toISOString()});
-        st.srcDevices = new Set(lines.map(l => l.device)).size; st.srcLabel = "Équipe " + code + " (" + st.srcDevices + (st.srcDevices > 1 ? " terminaux" : " terminal") + ")";
+        src = {kind: "équipe", lines, log, meta: {mission: (pd.exists && pd.data().name) || ""}, at: new Date().toISOString()};
       }
-      st.loggedIn = true; st.zone = null; delete st.team; delete st.sync; st.backup = false;
-      if(company && company.name && !(st.company && st.company.name)) st.company = company;
-      st.srcCode = code; state = st; loadMaster(); save();
-      renderBureau(); flash("Mission chargée.", "ok");
+      if(!add || !state.lines.length){
+        const keepS = settingsOf(state), company = state.company;
+        const base = src.kind === "terminal" ? Object.assign(blank(), src.meta, {lines: [], log: [], seq: 1}) : Object.assign(blank(), keepS, {mission: src.meta.mission});
+        base.loggedIn = true; base.zone = null; delete base.team; delete base.sync; base.backup = false; base.srcCodes = []; base.srcInfo = {};
+        if(company && company.name && !(base.company && base.company.name)) base.company = company;
+        state = base;
+      }
+      let seq = state.seq || 1;
+      src.lines.forEach(l => { l.id = seq++; l.srcCode = code; state.lines.push(l); });
+      state.seq = seq;
+      state.lines.sort((a, b) => String(a.t).localeCompare(String(b.t)));
+      state.log = (state.log || []).concat(src.log).sort((a, b) => String(a.t).localeCompare(String(b.t)));
+      state.zones = [...new Set(state.lines.map(l => l.zone))].sort();
+      if(!state.mission && src.meta.mission) state.mission = src.meta.mission;
+      state.startedAt = state.startedAt || (state.lines[0] && state.lines[0].t);
+      state.srcCodes = (state.srcCodes || []).concat(code); state.srcInfo = state.srcInfo || {};
+      state.srcInfo[code] = {kind: src.kind, n: src.lines.length, q: src.lines.reduce((a, l) => a + l.qty, 0), at: src.at};
+      state.srcDevices = new Set(state.lines.map(l => l.device || "local")).size;
+      loadMaster(); save(); renderBureau(); flash(code + " chargé.", "ok");
     }catch(e){ renderBureau("Chargement impossible : " + errMsg(e)); }
+  }
+  function bureauRemove(code){
+    state.lines = state.lines.filter(l => l.srcCode !== code);
+    state.srcCodes = (state.srcCodes || []).filter(c => c !== code); if(state.srcInfo) delete state.srcInfo[code];
+    state.zones = [...new Set(state.lines.map(l => l.zone))].sort();
+    state.srcDevices = new Set(state.lines.map(l => l.device || "local")).size;
+    save(); renderBureau();
+  }
+  /* Zones comptées sur plusieurs terminaux : risque de double comptage */
+  function bureauDupZones(){
+    const by = {}; state.lines.forEach(l => { (by[l.zone] = by[l.zone] || new Set()).add(l.device || "local"); });
+    return Object.keys(by).filter(z => by[z].size > 1).sort();
   }
   let bwPreviewDirty = false;
   function renderBureau(msg){
@@ -1414,11 +1446,15 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
     const has = state.lines.length, C = state.company || {};
     $("bureau").innerHTML =
       '<aside class="bw-side"><div class="bw-brand"><b>Rapport d’inventaire</b><span>Poste bureau</span></div>'+
-      '<section><h3>1. Données du comptage</h3><p>Saisis le code K… affiché sur le terminal (Menu › Sauvegarde serveur), ou le code d’équipe.</p>'+
-        '<div class="bw-row"><input id="bwCode" placeholder="K51RJN" maxlength="6" value="'+esc(state.srcCode || "")+'"><button class="btn primary" id="bwLoad">Charger</button></div>'+
+      '<section><h3>1. Données du comptage</h3><p>Charge <b>chaque terminal</b> de la mission avec son code K… (Menu › Sauvegarde serveur), ou un code d’équipe. Le rapport additionne tout.</p>'+
+        '<div class="bw-row"><input id="bwCode" placeholder="K51RJN" maxlength="6"><button class="btn primary" id="bwLoad">'+(has ? 'Ajouter' : 'Charger')+'</button></div>'+
         (msg ? '<p class="bw-msg">'+esc(msg)+'</p>' : '')+
-        (has ? '<p class="bw-ok">'+esc(state.srcLabel || "Données locales")+'<br><b>'+state.lines.length+'</b> lignes · <b>'+sum(state.lines)+'</b> articles · <b>'+new Set(state.lines.map(l => l.zone)).size+'</b> zones</p>' : '')+
-        '<button class="btn" id="bwMerge">Ajouter un export Excel d’un autre terminal</button></section>'+
+        ((state.srcCodes || []).length ? '<ul class="bw-src">'+state.srcCodes.map(c => { const x = (state.srcInfo || {})[c] || {};
+          return '<li><span><b>'+esc(c)+'</b> · '+esc(x.kind || "")+'<br><small>'+(x.n || 0)+' lignes · '+(x.q || 0)+' articles'+(x.at ? ' · '+new Date(x.at).toLocaleString("fr-FR", {day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit"}) : '')+'</small></span><button class="bw-x" data-rm="'+esc(c)+'" title="Retirer">✕</button></li>'; }).join("")+'</ul>' : '')+
+        (has ? '<p class="bw-ok">Total mission : <b>'+state.lines.length+'</b> lignes · <b>'+sum(state.lines)+'</b> articles · <b>'+new Set(state.lines.map(l => l.zone)).size+'</b> zones · <b>'+(state.srcCodes || []).length+'</b> source'+((state.srcCodes || []).length > 1 ? 's' : '')+'</p>' : '')+
+        (has && bureauDupZones().length ? '<p class="bw-msg">Attention : zone'+(bureauDupZones().length > 1 ? 's' : '')+' comptée'+(bureauDupZones().length > 1 ? 's' : '')+' sur plusieurs terminaux : '+esc(bureauDupZones().join(", "))+'. Vérifie qu’il ne s’agit pas d’un double comptage.</p>' : '')+
+        '<button class="btn" id="bwMerge">Ajouter un export Excel d’un autre terminal</button>'+
+        (has ? '<button class="btn" id="bwReset">Vider et recommencer</button>' : '')+'</section>'+
       '<section><h3>2. Stock théorique du client</h3><p>'+(master ? '<b>'+esc(master.file)+'</b> : '+master.items.length+' références' : 'Facultatif : ajoute les désignations, les écarts et la valorisation.')+'</p>'+
         '<button class="btn" id="bwMaster"'+(has ? '' : ' disabled')+'>'+(master ? 'Voir / remplacer le fichier' : 'Charger le fichier du client')+'</button></section>'+
       '<section><h3>3. Informations du rapport</h3><p>'+infoCount()+' information'+(infoCount() > 1 ? 's' : '')+' renseignée'+(infoCount() > 1 ? 's' : '')+(C.name ? ' · prestataire : '+esc(C.name) : '')+'</p>'+
@@ -1430,8 +1466,10 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
         '<p class="bw-tip">Tu peux cliquer dans l’aperçu pour retoucher un texte avant d’imprimer. « Actualiser » efface ces retouches.</p></section></aside>'+
       '<main class="bw-main"><div id="bwPrev" class="bw-prev">'+(has ? '' : '<div class="bw-empty">Charge une mission pour voir l’aperçu du rapport.</div>')+'</div></main>';
     $("bureau").querySelectorAll("input,textarea").forEach(x => x.addEventListener("keydown", e => e.stopPropagation()));
-    $("bwCode").addEventListener("keydown", e => { if(e.key === "Enter") bureauLoad($("bwCode").value); });
-    $("bwLoad").onclick = () => bureauLoad($("bwCode").value);
+    $("bwCode").addEventListener("keydown", e => { if(e.key === "Enter") bureauLoad($("bwCode").value, has); });
+    $("bwLoad").onclick = () => bureauLoad($("bwCode").value, has);
+    $("bureau").querySelectorAll("[data-rm]").forEach(b => b.onclick = () => bureauRemove(b.dataset.rm));
+    if($("bwReset")) $("bwReset").onclick = () => { const c = state.company; state = Object.assign(blank(), {company: c, loggedIn: true, backup: false}); save(); renderBureau(); };
     $("bwMerge").onclick = () => pickMergeFile();
     $("bwMaster").onclick = () => masterSheet();
     $("bwInfo").onclick = () => infoSheet(false);
@@ -1848,7 +1886,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 57 du 17/11/2026</p>');
+      '<p class="mver">Version 58 du 17/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

@@ -1620,22 +1620,44 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
     openSheet('<h2>Étiquettes de zones</h2><p>Planche de codes-barres à imprimer sur papier adhésif A4. Chaque étiquette se scanne pour ouvrir sa zone.</p>'+
       '<label>Préfixe<input id="lbP" value="'+esc(px)+'" maxlength="4" autocomplete="off"></label>'+
       '<div class="btnrow"><label style="flex:1">De<input id="lbA" inputmode="numeric" value="1"></label><label style="flex:1">À<input id="lbB" inputmode="numeric" value="'+(pl.length || 40)+'"></label></div>'+
-      '<label>Format<select id="lbF"><option value="21">21 par page — 63,5 × 38,1 mm</option><option value="24">24 par page — 70 × 37 mm</option><option value="8">8 par page — grandes, 105 × 74 mm</option></select></label>'+
+      '<label>Format<select id="lbF">'+[["b62x40","Brother QL-820NWB · rouleau 62 mm (DK-22205) · 62 × 40 mm"],["b29x90","Brother QL-820NWB · rouleau 29 mm (DK-22210) · bande 29 × 90 mm, style rayon"],["b62x29","Brother QL-820NWB · prédécoupé DK-11209 · 62 × 29 mm"],["21","Planche A4 · 21 étiquettes 63,5 × 38,1 mm"],["24","Planche A4 · 24 étiquettes 70 × 37 mm"],["8","Planche A4 · 8 grandes étiquettes 105 × 74 mm"]].map(([v, t]) => '<option value="'+v+'"'+((state.lblFmt || "b62x40") === v ? ' selected' : '')+'>'+t+'</option>').join("")+'</select></label>'+
+      '<label class="chk"><input id="lbK" type="checkbox"'+(state.lblBox === false ? '' : ' checked')+'> Case « compté » à cocher sur l’étiquette</label>'+
+      '<p id="lbHelp" style="font-size:13px;margin:0"></p>'+
       '<label class="chk"><input id="lbM" type="checkbox"'+(state.mission ? ' checked' : '')+'> Afficher le nom du client sur l’étiquette</label>'+
       (pl.length ? '<div class="btnrow"><button class="btn" id="lbPlan">Imprimer le plan de zones ('+pl.length+' zones)</button></div>' : '')+
       '<div class="btnrow"><button class="btn primary" id="lbGo">Imprimer / enregistrer en PDF</button></div><div class="btnrow"><button class="btn" id="lbNo">Fermer</button></div>');
     $("sheet").querySelectorAll("input,select").forEach(x => x.addEventListener("keydown", e => e.stopPropagation()));
     $("lbNo").onclick = () => BUREAU ? closeSheet() : $("menuBtn").click();
+    const help = () => { const v = $("lbF").value; $("lbHelp").innerHTML = v[0] === "b" ? 'Une étiquette par zone. À l’impression : imprimante <b>Brother QL-820NWB</b>, papier <b>'+({b62x40:"62 mm (continu), longueur 40 mm", b29x90:"29 mm (continu), longueur 90 mm", b62x29:"29 mm × 62 mm (DK-11209)"})[v]+'</b>, marges <b>aucune</b>, échelle <b>100 %</b>.' : 'Planche A4 : imprimante de bureau, marges <b>aucune</b>, échelle <b>100 %</b>.'; };
+    $("lbF").onchange = help; help();
+    const makeRoll = (list, v, mis, box) => {
+      /* page = une étiquette ; la bande 29 × 90 est composée à l’horizontale puis tournée */
+      const D = {b62x40: {pw: 62, ph: 40, w: 62, h: 40, rot: false, fs: 22, bh: 15}, b62x29: {pw: 62, ph: 29, w: 62, h: 29, rot: false, fs: 16, bh: 10}, b29x90: {pw: 29, ph: 90, w: 90, h: 29, rot: true, fs: 18, bh: 11}}[v];
+      const lab = z => '<div class="rl" style="width:'+D.w+'mm;height:'+D.h+'mm'+(D.rot ? ';transform:translate('+D.pw+'mm,0) rotate(90deg);transform-origin:0 0' : '')+'">'+
+        '<div class="rlm">'+code128SVG(z, D.bh)+'<div class="rlz" style="font-size:'+D.fs+'pt">'+esc(z)+'</div>'+(mis ? '<div class="rlc">'+mis+'</div>' : '')+'</div>'+
+        (box ? '<div class="rlb"></div>' : '')+'</div>';
+      const css = '<style>@page{size:'+D.pw+'mm '+D.ph+'mm;margin:0}.rp-page{width:'+D.pw+'mm;height:'+D.ph+'mm;overflow:hidden;position:relative;page-break-after:always;break-after:page}'+
+        '.rl{box-sizing:border-box;padding:2mm 3mm;display:flex;align-items:center;gap:2.5mm;font-family:Roboto,Arial,sans-serif;position:absolute;top:0;left:0}'+
+        '.rlm{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:.6mm}.rlm svg{fill:#000}.rlz{font-weight:700;letter-spacing:.08em;line-height:1}.rlc{font-size:6.5pt;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}'+
+        '.rlb{flex:none;width:'+Math.min(9, D.h - 8)+'mm;height:'+Math.min(9, D.h - 8)+'mm;border:.4mm solid #000}</style>';
+      return css + list.map(z => '<div class="rp-page">'+lab(z)+'</div>').join("");
+    };
     const make = list => {
-      const f = +$("lbF").value, showMis = $("lbM").checked; closeSheet();
+      const v = $("lbF").value, showMis = $("lbM").checked, box = $("lbK").checked; closeSheet();
+      state.lblFmt = v; state.lblBox = box;
+      if(v[0] === "b"){
+        printHTML(makeRoll(list, v, showMis ? esc(state.mission || "") : "", box), "Etiquettes zones " + (state.mission || ""));
+        logAct("Étiquettes de zones imprimées (" + v + ")", "", list[0] + "–" + list[list.length - 1], list.length, ""); save(); return;
+      }
+      const f = +v;
       const G = {21:{c:3, w:63.5, h:38.1, mt:15.15, ml:7.25, gx:2.5, bh:13, fs:20}, 24:{c:3, w:70, h:37, mt:4.5, ml:0, gx:0, bh:12, fs:20}, 8:{c:2, w:105, h:74, mt:0.5, ml:0, gx:0, bh:26, fs:40}}[f];
       const mis = showMis ? esc(state.mission || "") : "";
       let pages = "";
       for(let i = 0; i < list.length; i += f){
         pages += '<div class="lbpage" style="padding:'+G.mt+'mm 0 0 '+G.ml+'mm;grid-template-columns:repeat('+G.c+','+G.w+'mm);grid-auto-rows:'+G.h+'mm;column-gap:'+G.gx+'mm">'+
-          list.slice(i, i + f).map(z => '<div class="lb"><div class="lbz" style="font-size:'+G.fs+'pt">'+esc(z)+'</div>'+code128SVG(z, G.bh)+'<div class="lbm">'+mis+'</div></div>').join("")+'</div>';
+          list.slice(i, i + f).map(z => '<div class="lb"><div class="lbz" style="font-size:'+G.fs+'pt">'+esc(z)+(box ? ' <span class="lbk"></span>' : '')+'</div>'+code128SVG(z, G.bh)+'<div class="lbm">'+mis+'</div></div>').join("")+'</div>';
       }
-      const css = '<style>@page{size:A4;margin:0}.lbpage{width:210mm;height:297mm;box-sizing:border-box;display:grid;align-content:start;page-break-after:always;overflow:hidden}.lb{box-sizing:border-box;padding:2.5mm 6mm;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:1mm;overflow:hidden;font-family:Roboto,Arial,sans-serif}.lbz{font-weight:700;letter-spacing:.06em;line-height:1}.lb svg{fill:#000;max-width:58mm}.lbm{font-size:7pt;color:#444;height:3mm}</style>';
+      const css = '<style>@page{size:A4;margin:0}.lbpage{width:210mm;height:297mm;box-sizing:border-box;display:grid;align-content:start;page-break-after:always;overflow:hidden}.lb{box-sizing:border-box;padding:2.5mm 6mm;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:1mm;overflow:hidden;font-family:Roboto,Arial,sans-serif}.lbz{font-weight:700;letter-spacing:.06em;line-height:1}.lb svg{fill:#000;max-width:58mm}.lbm{font-size:7pt;color:#444;height:3mm}.lbk{display:inline-block;width:4mm;height:4mm;border:.35mm solid #000;vertical-align:middle;margin-left:2mm}</style>';
       printHTML(css + pages, "Etiquettes zones " + (state.mission || ""));
       logAct("Étiquettes de zones imprimées", "", list[0] + "–" + list[list.length - 1], list.length, ""); save();
     };
@@ -2184,7 +2206,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 63 du 17/11/2026</p>');
+      '<p class="mver">Version 64 du 17/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -2235,7 +2257,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
   }
 
   /* Missions: archive instead of delete */
-  function settingsOf(s){ return {prefix:s.prefix, counter:s.counter, confirm:s.confirm, check:s.check, autoBackup:s.autoBackup, bigQty:s.bigQty, hold:s.hold, loggedIn:s.loggedIn, adminSession:s.adminSession, badge:s.badge, sessionStart:s.sessionStart, backup:s.backup, wake:s.wake, company:s.company}; }
+  function settingsOf(s){ return {prefix:s.prefix, counter:s.counter, confirm:s.confirm, check:s.check, autoBackup:s.autoBackup, bigQty:s.bigQty, hold:s.hold, loggedIn:s.loggedIn, adminSession:s.adminSession, badge:s.badge, sessionStart:s.sessionStart, backup:s.backup, wake:s.wake, company:s.company, lblFmt:s.lblFmt, lblBox:s.lblBox}; }
   function archiveCurrent(){
     if(!state.lines.length && !(state.log||[]).length) return true;
     const a = loadArch();

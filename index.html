@@ -466,11 +466,40 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
 
 /* Fenêtres Zones et Menu : fonds distincts */
 .sheet.sz{background:color-mix(in srgb,#0F4C5C 9%,var(--surface))}
-.sheet.sm{background:color-mix(in srgb,#E8A33D 13%,var(--surface))}
-.sheet.sz h2,.sheet.sm h2{margin:-4px -18px 12px;padding:8px 18px;color:#fff}
+.sheet.sz h2{margin:-4px -18px 12px;padding:8px 18px;color:#fff}
 .sheet.sz h2{background:#0F4C5C}
-.sheet.sm h2{background:#8A5A12}
 .sheet input[type=checkbox]{accent-color:var(--brand)}
+
+/* Menu sombre, options bleues, options sensibles en rouge */
+.sheet.sm{--mb:#2E6DA4;--mr:#E5534B;background:#121212!important;color:#E8E8E8;padding:0 0 calc(14px + env(safe-area-inset-bottom,0px));gap:0;max-height:100%;height:100%;font-family:Roboto,system-ui,sans-serif}
+.sheet.sm::before{display:none}
+.sm .mbar{position:sticky;top:0;z-index:2;display:flex;align-items:center;background:var(--mb);color:#fff;padding:0 6px 0 18px;min-height:56px}
+.sm .mbar b{flex:1;font-size:20px;font-weight:500}
+.sm .mx{background:none;border:0;padding:10px;color:#fff;display:grid;place-items:center}
+.sm svg{width:24px;height:24px;fill:currentColor;flex:none}
+.sm .mstats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:14px 14px 4px}
+.sm .mstats span{display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--mb);border-radius:12px;padding:8px 2px;color:#fff;font-size:12px;opacity:.95}
+.sm .mstats b{font-size:22px;font-weight:700;line-height:1.1}
+.sm .msec{padding:18px 18px 6px;font-size:13px;font-weight:500;color:#8FB4D9;letter-spacing:.02em}
+.sm .mrow{display:flex;align-items:center;gap:16px;width:100%;background:none;border:0;border-bottom:1px solid #222;padding:12px 14px 12px 18px;text-align:left;color:var(--mb);font-size:17px;font-weight:500}
+.sm .mrow:active{background:#1C1C1C}
+.sm .mrow .ml{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.2}
+.sm .mrow small{font-size:13px;font-weight:400;color:#9A9A9A;margin-top:2px}
+.sm .mrow .chev{width:22px;height:22px;fill:#6B6B6B}
+.sm .mrow.red{color:var(--mr)}
+.sm .mrow.on .ml small{color:#7CC48A}
+.sm .mfield{display:flex;flex-direction:column;gap:6px;padding:6px 18px 8px;font-size:13px;color:#9A9A9A;font-weight:400}
+.sm .mfield input{background:#121212;color:#fff;border:1px solid #555;border-radius:8px;padding:12px 14px;font-size:17px;font-family:inherit}
+.sm .mfield input:focus{outline:none;border-color:var(--mb)}
+.sm .mexp{margin:2px 18px 6px;font-size:13px}
+.sm .mexp.ok{color:#7CC48A}
+.sm .mexp.no{color:var(--mr)}
+.sm .mchk{display:flex;align-items:center;gap:14px;padding:10px 18px;font-size:15px;color:#E8E8E8;border-bottom:1px solid #222}
+.sm .mchk input{width:22px;height:22px;accent-color:var(--mb);flex:none;margin:0}
+.sm .mver{padding:16px 18px 0;margin:0;font-size:12px;color:#777}
+.sheet.sm label.mchk{flex-direction:row!important;align-items:center!important;justify-content:flex-start!important;text-align:left!important;font-weight:400!important;margin:0}
+.sheet.sm label.mchk span{flex:1}
+.sheet.sm label.mfield{font-weight:400!important;margin:0}
 </style>
 </head>
 <body>
@@ -1060,7 +1089,7 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
   function openSheet(html){ sheetOpen = true; $("sheet").innerHTML = html;
     $("sheet").classList.remove("sz","sm");
     if(html.startsWith("<h2>Zones</h2>")) $("sheet").classList.add("sz");
-    else if(html.startsWith("<h2>Mission</h2>")) $("sheet").classList.add("sm"); $("veil").classList.add("open"); updateStatus(); }
+    else if(html.startsWith('<div class="mbar">')) $("sheet").classList.add("sm"); $("veil").classList.add("open"); updateStatus(); }
   function closeSheet(){ alarmStop(); $("sheet").classList.remove("errsheet","alarm","sz","sm"); sheetOpen = false; $("veil").classList.remove("open"); $("sheet").innerHTML = ""; focusScan(); }
   $("veil").addEventListener("click", e => { if(e.target.id === "veil") closeSheet(); });
   function confirmSheet(title, text, label, fn){
@@ -1321,29 +1350,53 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
   window.addEventListener("online",()=>{ try{ driveFlushQueue(); }catch(e){} });
 
   $("menuBtn").addEventListener("click", () => {
-    openSheet('<h2>Mission</h2>'+
-      '<div class="totals"><span><b class="num">'+state.zones.length+'</b> zones</span><span><b class="num">'+fmtLines(state.lines.length)+'</b></span><span><b class="num">'+sum(state.lines)+'</b> articles</span><span><b class="num">'+fmtPph(pphMission(state))+'</b> PPH</span></div>'+
-      '<div class="btnrow"><span style="flex:1;align-self:center">Connecté : <b>'+esc(state.counter || "—")+'</b>'+(state.badge ? ' · '+esc(state.badge) : '')+'</span><button class="btn logoff" id="xOff">LOG OFF</button></div>'+
-      '<label>Nom du client ou de la mission<input id="mn" value="'+esc(state.mission)+'" autocomplete="off"></label>'+
-      '<div class="expst '+(isExported() ? 'ok">Mission exportée : rien à perdre' : 'no">Mission pas encore exportée depuis la dernière modification')+'</div>'+
-      '<label class="chk"><input id="mhold" type="checkbox"'+(state.hold === false ? '' : ' checked')+'> Appui long pour fermer la zone, annuler et corriger</label>'+
-      '<label class="chk"><input id="mv" type="checkbox"'+(state.confirm === false ? '' : ' checked')+'> Faire valider les codes inconnus du fichier client</label>'+
-      '<label class="chk"><input id="mck" type="checkbox"'+(state.check === false ? '' : ' checked')+'> Refuser les codes EAN invalides (mal lus ou mal tapés)</label>'+
-      '<label class="chk"><input id="mab" type="checkbox"'+(state.autoBackup === false ? '' : ' checked')+'> Sauvegarde Excel automatique à chaque fermeture de zone</label>'+
-      '<label>Demander confirmation à partir de la quantité<input id="mbq" type="number" inputmode="numeric" min="2" value="'+(parseInt(state.bigQty,10)||50)+'"></label>'+
-      '<label>Préfixe des étiquettes de zone<input id="mp" value="'+esc(state.prefix)+'" maxlength="4" autocomplete="off"></label>'+
-      '<div class="btnrow"><button class="btn" id="xB">Tester le bip</button></div>'+
-      '<div class="btnrow"><button class="btn primary" id="xX">Exporter Excel</button><button class="btn" id="xC">Exporter CSV</button></div>'+
-      '<p>Excel contient trois onglets : total par code, détail par zone et journal des corrections ('+(state.log||[]).length+'). Les codes restent en texte.</p>'+
-      '<div class="btnrow"><button class="btn'+(controlMode?' primary':'')+'" id="xCtrl">'+(controlMode ? 'Mode contrôle : ACTIVÉ ✓' : 'Mode contrôle (vérification client)')+'</button></div>'+
-      '<div class="btnrow"><button class="btn primary" id="xMaster">'+(master ? 'Stock théorique ('+master.items.length+' réf.)' : 'Charger le stock théorique')+'</button>'+(master ? '<button class="btn primary" id="xEc">Écarts</button>' : '')+'</div>'+
-      '<div class="btnrow"><button class="btn primary" id="xTeam">Équipe en ligne'+(state.team ? ' ('+esc(state.team.code)+')' : '')+'</button></div>'+
-      '<div class="btnrow"><button class="btn'+(driveEnabled()?' primary':'')+'" id="xDrive">'+(driveEnabled()?'Google Drive : connecté ✓':'Sauvegarde Google Drive (auto)')+'</button></div>'+
-      '<div class="btnrow"><button class="btn" id="xMerge">Fusionner l’export d’un autre téléphone</button></div>'+
-      '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
-      '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
-      '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 50 du 17/11/2026</p>');
+    const I = {
+      off:"M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z",
+      xls:"M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z",
+      csv:"M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z",
+      ctrl:"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z",
+      db:"M2 20h20v-4H2v4zm2-3h2v2H4v-2zM2 4v4h20V4H2zm4 3H4V5h2v2zm-4 7h20v-4H2v4zm2-3h2v2H4v-2z",
+      ec:"M9.01 14H2v2h7.01v3L13 15l-3.99-4v3zm5.98-1v-3H22V8h-7.01V5L11 9l3.99 4z",
+      team:"M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z",
+      drive:"M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z",
+      merge:"M17 20.41L18.41 19 15 15.59 13.59 17 17 20.41zM7.5 8H11v5.59L5.59 19 7 20.41l6-6V8h3.5L12 3.5 7.5 8z",
+      arch:"M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5L6.5 12H10v-2h4v2h3.5L12 17.5zM5.12 5l.81-1h12l.94 1H5.12z",
+      lock:"M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z",
+      add:"M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z",
+      beep:"M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z",
+      close:"M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"
+    };
+    const ic = k => '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="'+I[k]+'"/></svg>';
+    const row = (id, k, label, sub, cls) => '<button class="mrow'+(cls ? ' '+cls : '')+'" id="'+id+'">'+ic(k)+'<span class="ml">'+label+(sub ? '<small>'+sub+'</small>' : '')+'</span><svg class="chev" viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg></button>';
+    openSheet('<div class="mbar"><b>Menu</b><button class="mx" id="xNo" aria-label="Fermer">'+ic("close")+'</button></div>'+
+      '<div class="mstats"><span><b class="num">'+state.zones.length+'</b>zones</span><span><b class="num">'+state.lines.length+'</b>lignes</span><span><b class="num">'+sum(state.lines)+'</b>articles</span><span><b class="num">'+fmtPph(pphMission(state))+'</b>PPH</span></div>'+
+      '<div class="msec">Inventoriste</div>'+
+      row("xOff", "off", "Log off", esc(state.counter || "—") + (state.badge ? ' · ' + esc(state.badge) : ''), "red")+
+      '<div class="msec">Mission</div>'+
+      '<label class="mfield">Client ou mission<input id="mn" value="'+esc(state.mission)+'" autocomplete="off" placeholder="Nom du client"></label>'+
+      '<div class="mexp '+(isExported() ? 'ok">Mission exportée' : 'no">Pas encore exportée depuis la dernière modification')+'</div>'+
+      row("xX", "xls", "Exporter Excel", "Total, détail par zone, journal ("+(state.log||[]).length+")")+
+      row("xC", "csv", "Exporter CSV", "")+
+      '<div class="msec">Outils</div>'+
+      row("xCtrl", "ctrl", "Mode contrôle client", controlMode ? "Activé" : "Vérifier sans compter", controlMode ? "on" : "")+
+      row("xMaster", "db", "Stock théorique", master ? master.items.length + " références chargées" : "Charger le fichier client")+
+      (master ? row("xEc", "ec", "Écarts", "Compté / théorique") : '')+
+      row("xTeam", "team", "Équipe en ligne", state.team ? "Code " + esc(state.team.code) : "Compter à plusieurs")+
+      row("xDrive", "drive", "Google Drive", driveEnabled() ? "Connecté" : "Sauvegarde automatique", driveEnabled() ? "on" : "")+
+      row("xMerge", "merge", "Fusionner un export", "Depuis un autre téléphone", "red")+
+      row("xArch", "arch", "Missions archivées", String(loadArch().length))+
+      '<div class="msec">Réglages</div>'+
+      '<label class="mchk"><input id="mhold" type="checkbox"'+(state.hold === false ? '' : ' checked')+'><span>Appui long pour fermer, annuler et corriger</span></label>'+
+      '<label class="mchk"><input id="mv" type="checkbox"'+(state.confirm === false ? '' : ' checked')+'><span>Valider les codes inconnus du fichier client</span></label>'+
+      '<label class="mchk"><input id="mck" type="checkbox"'+(state.check === false ? '' : ' checked')+'><span>Refuser les codes EAN invalides</span></label>'+
+      '<label class="mchk"><input id="mab" type="checkbox"'+(state.autoBackup === false ? '' : ' checked')+'><span>Sauvegarde Excel à chaque fermeture de zone</span></label>'+
+      '<label class="mfield">Confirmation à partir de la quantité<input id="mbq" type="number" inputmode="numeric" min="2" value="'+(parseInt(state.bigQty,10)||50)+'"></label>'+
+      '<label class="mfield">Préfixe des étiquettes de zone<input id="mp" value="'+esc(state.prefix)+'" maxlength="4" autocomplete="off"></label>'+
+      row("xB", "beep", "Tester le bip", "")+
+      '<div class="msec">Fin de mission</div>'+
+      row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
+      row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
+      '<p class="mver">Version 51 du 17/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

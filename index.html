@@ -1125,6 +1125,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
   const BK_KEY = "comptage-bk-last", bkCode = () => "K" + deviceId.slice(0, 5).toUpperCase();
   const BK = {timer: null, running: false, err: "", last: (() => { try{ return parseInt(localStorage.getItem(BK_KEY), 10) || 0; }catch(e){ return 0; } })()};
   const bkOn = () => !BUREAU && state.backup !== false;
+  const bkMissionId = () => "m" + (Date.parse(state.startedAt) || 0).toString(36);
   function scheduleBackup(delay){ if(!bkOn()) return; clearTimeout(BK.timer); BK.timer = setTimeout(runBackup, delay == null ? 15000 : delay); }
   async function runBackup(){
     if(!bkOn() || BK.running) return;
@@ -1139,7 +1140,9 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
         BK.parentOk = true;
       }
       if(json.length > 900000) throw new Error("Mission trop volumineuse pour la sauvegarde serveur : utilise l’export Excel.");
-      await mdoc.collection("devices").doc("backup").set({who: state.counter || "", lines: state.lines.length, qty: sum(state.lines), at: new Date().toISOString(), mission: state.mission || "", backup: json});
+      const payload = {who: state.counter || "", lines: state.lines.length, qty: sum(state.lines), at: new Date().toISOString(), mission: state.mission || "", startedAt: state.startedAt || "", finished: state.finished || "", backup: json};
+      /* « backup » = dernière mission du terminal ; « m… » = une copie par mission, jamais écrasée par la mission suivante */
+      await Promise.all([mdoc.collection("devices").doc("backup").set(payload), mdoc.collection("devices").doc(bkMissionId()).set(payload)]);
       BK.last = Date.now(); BK.err = ""; try{ localStorage.setItem(BK_KEY, String(BK.last)); }catch(e){}
     }catch(e){ BK.err = e && e.message && /volumineuse/.test(e.message) ? e.message : errMsg(e); }
     BK.running = false;
@@ -1386,7 +1389,15 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
   /* ===== Poste bureau ===== */
   function bureauBoot(){ document.title = "Rapport d’inventaire — poste bureau"; renderBureau(); }
   /* Charge un terminal (code K…) ou une équipe ; add = ajouter aux terminaux déjà chargés */
-  async function bureauLoad(code, add){
+  function bureauPickMission(code, add, ms){
+    renderBureau();
+    openSheet('<h2>Missions du terminal '+esc(code)+'</h2><p>Ce terminal a sauvegardé plusieurs missions. Choisis celle du rapport :</p><div class="zlist">'+
+      ms.map((x, i) => '<button class="zitem" data-mi="'+i+'" style="text-align:left;cursor:pointer"><span class="zn" style="font-size:16px">'+esc(x.mission || "Mission sans nom")+'</span><span class="zs">Commencée le '+(x.startedAt ? new Date(x.startedAt).toLocaleString("fr-FR", {dateStyle:"short", timeStyle:"short"}) : "?")+'<br>'+x.lines+' lignes · '+x.qty+' articles'+(x.finished ? ' · clôturée' : ' · en cours')+'</span></button>').join("")+
+      '</div><div class="btnrow"><button class="btn" id="pmNo">Annuler</button></div>');
+    $("pmNo").onclick = closeSheet;
+    $("sheet").querySelectorAll("[data-mi]").forEach(b => b.onclick = () => { closeSheet(); bureauLoad(code, add, ms[+b.dataset.mi]); });
+  }
+  async function bureauLoad(code, add, pick){
     code = String(code || "").trim().toUpperCase().replace(/\s+/g, "");
     if(!/^[A-Z0-9]{6}$/.test(code)){ renderBureau("Code invalide : 6 caractères (code K… du terminal ou code d’équipe)."); return; }
     if(add && (state.srcCodes || []).includes(code)){ renderBureau(code + " est déjà chargé."); return; }
@@ -1394,11 +1405,19 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
     try{
       await fbInit();
       const m = db.collection("missions").doc(code);
-      const bk = await m.collection("devices").doc("backup").get({source: "server"});
+      let bkd = null;
+      if(pick){ bkd = pick; }
+      else {
+        const all = await m.collection("devices").get({source: "server"}), ms = [];
+        let latest = null;
+        all.forEach(d => { const x = d.data(); if(!x.backup) return; if(d.id === "backup") latest = x; else if(d.id[0] === "m") ms.push(x); });
+        if(ms.length > 1){ bureauPickMission(code, add, ms.sort((a, b) => String(b.startedAt || b.at).localeCompare(String(a.startedAt || a.at)))); return; }
+        bkd = ms[0] || latest;
+      }
       let src;
-      if(bk.exists && bk.data().backup){
-        const b = JSON.parse(bk.data().backup);
-        src = {kind: "terminal", lines: (b.lines || []).map(l => Object.assign({}, l, {device: code})), log: b.log || [], meta: b, at: bk.data().at};
+      if(bkd){
+        const b = JSON.parse(bkd.backup);
+        src = {kind: "terminal", lines: (b.lines || []).map(l => Object.assign({}, l, {device: code})), log: b.log || [], meta: b, at: bkd.at};
       } else {
         const [pd, ls, lg] = await Promise.all([m.get({source: "server"}), m.collection("lines").get({source: "server"}), m.collection("log").get({source: "server"})]);
         if(!ls.size){ renderBureau("Aucune donnée trouvée pour " + code + "."); return; }
@@ -1886,7 +1905,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 58 du 17/11/2026</p>');
+      '<p class="mver">Version 59 du 17/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

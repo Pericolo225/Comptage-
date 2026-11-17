@@ -6,7 +6,7 @@
 <title>Comptage par zones</title>
 <script src="xlsx.full.min.js"></script>
 <link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#15181D">
+<meta name="theme-color" content="#2F3A4A">
 <link rel="icon" href="logo-192.png">
 <style>
 @font-face{font-family:"Barlow";font-weight:400;font-display:swap;src:url(barlow-latin-400-normal.woff2) format("woff2")}
@@ -320,92 +320,128 @@ body.nohold .actions .hold small{display:none}
 body.control .list{flex:1 1 0}
 @media (max-height:800px){ .appbar{display:none} }
 
-/* ===== v47 : thème « terminal pro » — plat, net, contrasté ===== */
+/* ===== v48 : style terminal d'inventaire (sobre, dense, police système) ===== */
 :root{
-  --bg:#E4E6E9; --surface:#FFFFFF; --surface2:#EFF1F3; --ink:#0F1216; --muted:#5C646E; --line:#CCD1D7;
-  --tag:#F2B705; --tagInk:#1A1400; --act:#0E5A8A; --actInk:#FFFFFF; --actSoft:#E1EDF5;
-  --ok:#147A3D; --bad:#C3271F; --key:#FFFFFF; --head:#15181D; --headInk:#F4F5F7; --headMuted:#9AA2AD; --headLine:#2B3038;
-  --r-sm:4px; --r-md:6px; --r-lg:8px; --sh-1:none; --sh-2:none; --sh-3:0 -2px 18px rgba(0,0,0,.18);
+  --bg:#EDEDED; --surface:#FFFFFF; --surface2:#F4F4F4; --ink:#1B1B1B; --muted:#6B6B6B; --line:#CFCFCF;
+  --brand:#2F3A4A; --band:#5A2430; --act:#2F3A4A; --actInk:#FFFFFF; --actSoft:#EEF0F3;
+  --ok:#2E7D32; --bad:#C62828; --tag:#2F3A4A; --tagInk:#FFFFFF; --key:#FFFFFF;
+  --r-sm:2px; --r-md:2px; --r-lg:3px; --sh-1:none; --sh-2:none; --sh-3:0 -1px 12px rgba(0,0,0,.25);
 }
 @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
-  --bg:#0E1013; --surface:#181B20; --surface2:#20242A; --ink:#ECEEF1; --muted:#9AA2AD; --line:#2E333B;
-  --act:#4A9BD1; --actInk:#071018; --actSoft:#14283A; --ok:#3DB06B; --bad:#E5584F; --key:#181B20;
-  --head:#000000; --headLine:#262A31; --sh-1:none; --sh-2:none; --sh-3:0 -2px 18px rgba(0,0,0,.6);
+  --bg:#121212; --surface:#1E1E1E; --surface2:#262626; --ink:#EDEDED; --muted:#9E9E9E; --line:#383838;
+  --brand:#20262F; --act:#4F6380; --actSoft:#262C35; --ok:#66BB6A; --bad:#EF5350; --key:#1E1E1E; --sh-1:none; --sh-2:none;
 }}
 :root[data-theme="dark"]{
-  --bg:#0E1013; --surface:#181B20; --surface2:#20242A; --ink:#ECEEF1; --muted:#9AA2AD; --line:#2E333B;
-  --act:#4A9BD1; --actInk:#071018; --actSoft:#14283A; --ok:#3DB06B; --bad:#E5584F; --key:#181B20;
-  --head:#000000; --headLine:#262A31; --sh-1:none; --sh-2:none; --sh-3:0 -2px 18px rgba(0,0,0,.6);
+  --bg:#121212; --surface:#1E1E1E; --surface2:#262626; --ink:#EDEDED; --muted:#9E9E9E; --line:#383838;
+  --brand:#20262F; --act:#4F6380; --actSoft:#262C35; --ok:#66BB6A; --bad:#EF5350; --key:#1E1E1E; --sh-1:none; --sh-2:none;
 }
-.app{padding:0 6px 6px;gap:6px}
+body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon h1,.logon .lgo,.vres .vlab,.vres .vchip b,.flash .qn,.pending .pcode,.tag strong{
+  font-family:Roboto,"Segoe UI",system-ui,-apple-system,sans-serif!important;letter-spacing:0!important}
+.num{font-variant-numeric:tabular-nums}
+.app{padding:0 0 4px;gap:0;background:var(--bg)}
+.app > *:not(.head){margin-left:6px;margin-right:6px}
+.app > *:not(.head) + *{margin-top:5px}
 .appbar{display:none}
-/* En-tête sombre type terminal */
-.head{background:var(--head);color:var(--headInk);margin:0 -6px;padding:8px 8px 6px;display:flex;flex-direction:column;gap:6px;flex:none}
-.head .top{gap:10px}
-.tag{border-radius:3px;padding:4px 12px 4px 24px;min-width:112px;box-shadow:none}
-.tag::before{left:8px;width:8px;height:8px;margin-top:-4px;background:var(--head);box-shadow:none}
-.tag small{font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;opacity:.75}
-.tag strong{font-size:30px;letter-spacing:.02em}
-.tag.empty strong{font-size:17px;text-transform:uppercase;letter-spacing:.04em}
-.head .stats .big{color:var(--headInk);font-size:22px;letter-spacing:.01em}
-.head .stats .small{color:var(--headMuted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.head .ghost{background:transparent;color:var(--headInk);border:1px solid #3B414B;border-radius:3px;padding:5px 12px;font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}
-.head .ghost:active{background:#262A31}
-.head .status{background:transparent;border:0;border-top:1px solid var(--headLine);border-radius:0;padding:6px 0 0;min-height:0;color:var(--headMuted);font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
-.head .dot{width:7px;height:7px;box-shadow:none}
-.head .status.off{color:#FF6B63}
-.head .status.ctrl,.head .status.typing{color:#7CC2F0}
-.head .pph{background:#262A31;color:var(--headInk);border:0;border-radius:3px;font-size:14px;letter-spacing:.06em;padding:2px 8px}
-/* Bandeau de message : barre latérale colorée */
-.flash{border-radius:var(--r-sm);border:1px solid var(--line);border-left:4px solid var(--muted);background:var(--surface);min-height:30px;padding:5px 10px;font-weight:600}
-.flash.ok{border-color:var(--line);border-left-color:var(--ok);background:color-mix(in srgb,var(--ok) 7%,var(--surface));color:var(--ok)}
-.flash.bad{border-color:var(--line);border-left-color:var(--bad);background:color-mix(in srgb,var(--bad) 7%,var(--surface));color:var(--bad)}
-.flash.zone{border-color:var(--line);border-left-color:var(--tag);background:color-mix(in srgb,var(--tag) 12%,var(--surface))}
-.flash .qn{border-radius:3px}
-.vres .vico{border-radius:3px}
-.vres .vchip{border-radius:3px}
-/* Liste */
-.list{border-radius:var(--r-md);box-shadow:none}
-.row{padding:8px 12px}
-.row.latest{box-shadow:inset 4px 0 0 var(--tag);background:color-mix(in srgb,var(--tag) 9%,var(--surface))}
-.row .src{border-radius:3px;text-transform:uppercase;font-size:10px;letter-spacing:.08em}
+/* En-tête */
+.head{flex:none;background:var(--surface);border-bottom:1px solid var(--line)}
+.tbar{display:flex;align-items:center;gap:6px;background:var(--brand);color:#fff;padding:6px 6px 6px 12px;min-height:44px}
+.tl{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.15}
+.tl b{font-size:17px;font-weight:500}
+.tl span{font-size:12px;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tb{background:transparent;border:0;color:#fff;font-size:14px;font-weight:500;padding:8px 10px;border-radius:2px}
+.tb:active{background:rgba(255,255,255,.12)}
+.head .status{background:var(--band);color:#fff;border:0;border-radius:0;padding:3px 12px;min-height:0;font-size:13px;font-weight:400;font-style:italic;box-shadow:none;justify-content:center;position:relative}
+.head .status .dot{position:absolute;left:12px;width:7px;height:7px;box-shadow:none;background:#9BE59F}
+.head .status.off{background:#8A1C1C;color:#fff;font-weight:500}
+.head .status.off .dot{background:#fff;box-shadow:none}
+.head .status.ctrl,.head .status.typing{background:#24527A;color:#fff}
+.head .status.ctrl .dot,.head .status.typing .dot{background:#fff;box-shadow:none}
+.head .pph{position:absolute;right:8px;background:transparent;border:0;color:#fff;font-size:12px;font-style:normal;font-weight:500;padding:0;opacity:.9}
+.grid3{display:grid;grid-template-columns:1.25fr 1fr 1fr}
+.cell{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;padding:5px 12px 6px;border:0;border-right:1px solid var(--line);background:transparent;color:var(--ink);text-align:left;min-width:0}
+.cell:last-child{border-right:0}
+.cell small{font-size:10px;font-weight:500;color:var(--muted)}
+.cell strong{font-size:22px;font-weight:700;line-height:1.1;font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.zcell:active{background:var(--surface2)}
+.zcell.empty strong{color:var(--muted);font-style:normal}
+/* Message */
+.flash{border:0;border-left:3px solid var(--line);border-radius:0;background:transparent;box-shadow:none;min-height:24px;padding:2px 8px;font-size:14px;font-weight:400;color:var(--ink)}
+.flash.ok{background:transparent;border-left-color:var(--ok);color:var(--ink)}
+.flash.bad{background:transparent;border-left-color:var(--bad);color:var(--bad);font-weight:500}
+.flash.zone{background:transparent;border-left-color:var(--brand)}
+.flash .qn{background:transparent!important;color:var(--ink);font-weight:700;padding:0 2px;margin-left:2px;border-radius:0;min-width:0}
+.flash.bad .qn{color:var(--bad)}
+.flash .fsep{opacity:.6}
+.vres .vico{border-radius:0;width:24px;height:24px;font-size:14px}
+.vres .vlab{font-size:15px;font-weight:700}
+.vres .vchip{border-radius:0;background:var(--surface)}
+.vres .vchip.q{background:var(--ok)}
+/* Liste en tableau */
+.list{border:1px solid var(--line);border-radius:0;background:var(--surface);box-shadow:none}
+.thead{display:flex;gap:10px;padding:3px 10px;font-size:10px;font-weight:500;color:var(--muted);border-bottom:1px solid var(--line);background:var(--surface2);position:sticky;top:0}
+.thead .q{min-width:64px;text-align:right}
+.row{gap:10px;padding:7px 10px}
+.row .ix,.thead .ix{width:26px;flex:none;color:var(--muted);font-size:13px}
+.thead .ix{font-size:10px}
+.row .code{font-size:18px;font-weight:500}
+.row .q{font-size:20px;font-weight:700;font-style:italic;min-width:64px}
+.thead .code{flex:1}
+.row.latest{box-shadow:inset 3px 0 0 var(--brand);background:var(--actSoft)}
+.row .src{border-radius:0;font-size:10px;color:var(--muted);border-color:var(--line)}
+.emptymsg{font-size:14px;padding:12px}
+.list{min-height:66px}
+.list:empty{min-height:0}
 /* Saisie manuelle */
-.manual input{border:1px solid var(--line);border-radius:var(--r-sm);box-shadow:none}
-.manual input:focus{border:1px solid var(--act)}
-.manual input::placeholder{font-size:14px}
-.manual button{border-radius:var(--r-sm);text-transform:uppercase;letter-spacing:.08em;font-size:13px;box-shadow:none}
-.manual .cambtn{border-color:var(--line)}
+.manual{gap:4px}
+.manual input{border:1px solid var(--line);border-radius:0;font-size:18px;padding:8px 10px;box-shadow:none}
+.manual input:focus{border-color:var(--brand)}
+.manual input::placeholder{font-size:14px;color:var(--muted)}
+.manual button{border-radius:0;background:var(--surface2);color:var(--ink);border:1px solid var(--line);font-size:14px;font-weight:500;padding:0 12px;box-shadow:none;text-transform:none}
+.manual .cambtn{background:var(--surface2)}
 /* Quantité */
-.qty{border-radius:var(--r-sm);box-shadow:none;align-items:center}
-.qty .lbl{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
-.qty.set{background:var(--actSoft)}
-/* Pavé : touches physiques, plates, bord inférieur marqué */
-.pad{gap:5px}
-.pad button{border-radius:var(--r-md);border:1px solid var(--line);border-bottom-width:3px;background:var(--key);box-shadow:none;color:var(--ink)}
-.pad button:active{transform:translateY(2px);border-bottom-width:1px;background:var(--surface2)}
-.pad .fn{background:var(--surface2);color:var(--muted);font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
-.pad button.ok{background:var(--ok);border-color:color-mix(in srgb,var(--ok) 70%,#000);color:#fff;font-size:12px;letter-spacing:.1em}
+.qty{border:1px solid var(--line);border-radius:0;box-shadow:none;padding:2px 10px;align-items:center;background:var(--surface)}
+.qty .lbl{font-size:12px;color:var(--muted);text-transform:none;letter-spacing:0;font-weight:400}
+.qty .val{font-size:30px;font-style:italic}
+.qty.set{border-color:var(--brand);background:var(--actSoft)}
+.qty.set .val{color:var(--ink)}
+.qty.set .lbl{color:var(--ink);font-weight:500}
+/* Pavé */
+.pad{gap:4px}
+.pad button{border-radius:2px;border:1px solid var(--line);background:var(--key);box-shadow:none;font-size:26px;font-weight:500;color:var(--ink)}
+.pad button:active{background:#DCDCDC;transform:none}
+.pad .fn{background:var(--surface2);color:var(--ink);font-size:13px;font-weight:500;text-transform:none}
+.pad button.ok{background:var(--brand);border-color:var(--brand);color:#fff;font-size:17px;font-weight:700}
 .pad button.ok.idle{background:var(--surface2);border-color:var(--line);color:var(--muted)}
 /* Actions */
-.actions{gap:5px}
-.actions button{border-radius:var(--r-sm);box-shadow:none;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:9px 3px}
-.actions .hold small{font-size:9px;letter-spacing:.06em;text-transform:none;font-weight:600}
-#closeZoneBtn{background:var(--tag)!important;color:var(--tagInk)!important;border-color:transparent!important}
-/* Feuilles */
-.veil{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(0,0,0,.55)}
-.sheet{border-radius:10px 10px 0 0!important}
-.sheet h2{font-family:"Barlow Condensed","Arial Narrow",sans-serif;text-transform:uppercase;letter-spacing:.04em}
-.btn{border-radius:var(--r-sm)!important;box-shadow:none!important}
-.ctrlbar{border-radius:var(--r-sm);box-shadow:none}
-.pending{border-radius:var(--r-sm);box-shadow:none}
-.pending button{border-radius:var(--r-sm)}
-.cam{border-radius:var(--r-md)}
-.cam .frame{border-radius:4px}
+.actions{gap:4px}
+.actions button{border-radius:0;border:1px solid var(--line);background:var(--surface2);box-shadow:none;font-size:13px;font-weight:500;text-transform:none;letter-spacing:0;padding:8px 3px}
+.actions .hold small{font-size:10px;font-weight:400;opacity:.6;text-transform:none}
+#closeZoneBtn{background:var(--surface2)!important;color:var(--ink)!important;border:1px solid var(--line)!important;font-weight:700}
+.hold::after{background:rgba(47,58,74,.22)}
+/* Feuilles et boutons */
+.veil{background:rgba(0,0,0,.5);backdrop-filter:none;-webkit-backdrop-filter:none}
+.sheet{border-radius:0!important}
+.sheet h2{font-size:19px;font-weight:500;text-transform:none}
+.btn{border-radius:0!important;box-shadow:none!important;font-weight:500}
+.btn.primary{background:var(--brand);border-color:var(--brand)}
+.ctrlbar{border-radius:0;box-shadow:none;background:#24527A;font-size:15px;font-weight:500;padding:8px 10px}
+.pending{border-radius:0;box-shadow:none;border-width:1px;background:var(--surface)}
+.pending button{border-radius:0}
+#camOk{background:var(--brand)}
+.cam{border-radius:0}
+.cam .frame{border-radius:0;border-color:#fff;border-width:2px}
 /* Log on */
-.logon{background:var(--head)}
-.logon .lmark{border-radius:6px}
-.logon input{border-radius:4px;border-width:1px}
-.logon .lgo{border-radius:4px}
+.logon{background:var(--bg);color:var(--ink);justify-content:flex-start;padding:0;gap:0}
+.logon .lmark{display:none}
+.logon h1{background:var(--brand);color:#fff;font-size:18px!important;font-weight:500;padding:14px 14px}
+.logon > p{background:var(--band);color:#fff;font-size:13px;font-style:italic;padding:4px 14px;text-align:center}
+.logon label{color:var(--muted);font-size:12px;font-weight:500;letter-spacing:0;margin:14px 14px 0}
+.logon input{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:0;font-size:20px;font-weight:400}
+.logon input:focus{border-color:var(--brand)}
+.logon .lerr{margin:8px 14px 0;color:var(--bad)}
+.logon .lgo{margin:14px;background:var(--brand);color:#fff;border-radius:0;font-size:17px;font-weight:500}
+.logon .lmeta{margin:0 14px;color:var(--muted)}
+.btn.logoff{background:var(--brand);border-color:var(--brand)}
 </style>
 </head>
 <body>
@@ -415,22 +451,16 @@ body.control .list{flex:1 1 0}
     <div class="brand"><strong>Comptage</strong><span>Inventaire par zones</span></div>
   </header>
   <div class="head">
-  <div class="top">
-    <button class="tag empty" id="tagBtn" aria-label="Choisir une zone">
-      <small>Zone</small><strong class="num" id="zoneName">À scanner</strong>
-    </button>
-    <div class="stats">
-      <div class="big num" id="zoneQty">0 article</div>
-      <div class="small" id="zoneLines">0 ligne dans la zone</div>
-      <div class="small" id="who"></div>
+    <div class="tbar">
+      <div class="tl"><b>Comptage</b><span id="who"></span></div>
+      <button class="tb" id="zonesBtn">Zones</button><button class="tb" id="menuBtn">Menu</button>
     </div>
-    <div class="topbtns">
-      <button class="ghost" id="zonesBtn">Zones</button>
-      <button class="ghost" id="menuBtn">Menu</button>
+    <div class="status" id="status"><span class="dot"></span><span id="statusTxt">Prêt à scanner</span><button class="pph" id="pph" title="Pièces par heure, pauses et temps morts compris"></button></div>
+    <div class="grid3">
+      <button class="cell zcell empty" id="tagBtn" aria-label="Choisir une zone"><small>ZONE</small><strong class="num" id="zoneName">—</strong></button>
+      <div class="cell"><small>QUANTITÉ</small><strong class="num" id="zoneQty">0</strong></div>
+      <div class="cell"><small>LIGNES</small><strong class="num" id="zoneLines">0</strong></div>
     </div>
-  </div>
-
-  <div class="status" id="status"><span class="dot"></span><span id="statusTxt">Prêt à scanner</span><button class="pph" id="pph" title="Pièces par heure, pauses et temps morts compris"></button></div>
   </div>
   <button class="team" id="team" hidden style="text-align:left"></button>
   <div class="flash" id="flash">Scanne l’étiquette de zone pour commencer.</div>
@@ -446,7 +476,7 @@ body.control .list{flex:1 1 0}
 
   <div class="pending" id="pend"><div class="pc"><div class="pcode" id="pCode"></div><div class="pq" id="pQty"></div></div><button id="camSkip">Ignorer</button><button id="camOk">Valider</button></div>
   <div class="manual">
-    <input id="manualCode" inputmode="numeric" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Code non scanné : tape-le ici" aria-label="Code article à saisir">
+    <input id="manualCode" inputmode="numeric" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Code-barres (saisie)" aria-label="Code article à saisir">
     <button id="manualAdd">Ajouter</button>
     <button id="camBtn" class="cambtn">Caméra</button>
   </div>
@@ -461,7 +491,7 @@ body.control .list{flex:1 1 0}
     <button class="num" data-k="4">4</button><button class="num" data-k="5">5</button><button class="num" data-k="6">6</button>
     <button class="num" data-k="7">7</button><button class="num" data-k="8">8</button><button class="num" data-k="9">9</button>
     <button class="fn" data-k="C">Effacer</button><button class="num" data-k="0">0</button><button class="fn" data-k="B" aria-label="Retour arrière">⌫</button>
-    <button class="ok idle" data-k="V" id="padOk"><span class="ck">✓</span>OK</button>
+    <button class="ok idle" data-k="V" id="padOk">OK</button>
   </div>
   <div class="actions">
     <button id="undoBtn">Annuler le dernier<small>appui long</small></button>
@@ -474,12 +504,12 @@ body.control .list{flex:1 1 0}
 
 <div class="logon" id="logon" role="dialog" aria-modal="true">
   <div class="lmark">III</div>
-  <h1>LOG ON</h1>
-  <p>Identifie-toi avant de commencer le comptage.</p>
-  <label>NOM DE L’INVENTORISTE<input id="lgName" autocomplete="off" autocapitalize="words" placeholder="Prénom et nom"></label>
-  <label>MATRICULE / BADGE (facultatif)<input id="lgBadge" autocomplete="off" inputmode="text" placeholder="ex. 20297013"></label>
+  <h1>Log on</h1>
+  <p>Identification de l’inventoriste</p>
+  <label>Nom de l’inventoriste<input id="lgName" autocomplete="off" autocapitalize="words" placeholder="Prénom et nom"></label>
+  <label>Matricule / badge (facultatif)<input id="lgBadge" autocomplete="off" inputmode="text" placeholder="ex. 20297013"></label>
   <div class="lerr" id="lgErr"></div>
-  <button class="lgo" id="lgGo">COMMENCER</button>
+  <button class="lgo" id="lgGo">Log on</button>
   <div class="lmeta" id="lgMeta"></div>
 </div>
 <div class="veil" id="veil"><div class="sheet" id="sheet" role="dialog" aria-modal="true"></div></div>
@@ -623,11 +653,10 @@ body.control .list{flex:1 1 0}
   function render(){
     const z = state.zone;
     $("tagBtn").classList.toggle("empty", !z);
-    $("zoneName").textContent = state.finished ? "Clôturée" : (z || "À scanner");
+    $("zoneName").textContent = state.finished ? "Clôt." : (z || "—");
     const zl = z ? linesOf(z) : [];
-    $("zoneQty").textContent = fmtQty(sum(zl));
-    $("zoneLines").textContent = state.finished ? "Mission terminée" : (z ? fmtLines(zl.length) + " dans la zone" : "Aucune zone ouverte");
-    if(state.finished){ $("zoneQty").textContent = fmtQty(sum(state.lines)); }
+    $("zoneQty").textContent = state.finished ? sum(state.lines) : sum(zl);
+    $("zoneLines").textContent = state.finished ? state.lines.length : zl.length;
     const list = $("list");
     if(state.finished){
       list.innerHTML = '<div class="emptymsg">Mission clôturée le ' + new Date(state.finished).toLocaleString("fr-FR") + ' : ' + fmtLines(state.lines.length) + ', ' + fmtQty(sum(state.lines)) + '. Les scans sont bloqués.<br><br>Menu : exporter, voir les écarts, rouvrir la mission ou en commencer une nouvelle.</div>';
@@ -636,15 +665,15 @@ body.control .list{flex:1 1 0}
     } else if(!zl.length){
       list.innerHTML = "";
     } else {
-      const rows = zl.slice(-60).reverse();
-      list.innerHTML = rows.map((l,i) =>
-        '<button class="row'+(i===0?' latest':'')+'" data-id="'+l.id+'"><span class="code"><span class="num">'+esc(l.code)+'</span>'+(master ? '<small class="nm'+(itemOf(l.code) ? '' : ' unk')+'">'+esc(nameOf(l.code) || "Inconnu du fichier client")+'</small>' : '')+'</span>'+(l.src==="manuel"?'<span class="src">saisi</span>':'')+'<span class="q num">'+l.qty+'</span></button>'
+      const rows = zl.slice(-60).reverse(), n = zl.length;
+      list.innerHTML = '<div class="thead"><span class="ix">#</span><span class="code">ARTICLE</span><span class="q">QUANTITÉ</span></div>' + rows.map((l,i) =>
+        '<button class="row'+(i===0?' latest':'')+'" data-id="'+l.id+'"><span class="ix num">'+(n-i)+'</span><span class="code"><span class="num">'+esc(l.code)+'</span>'+(master ? '<small class="nm'+(itemOf(l.code) ? '' : ' unk')+'">'+esc(nameOf(l.code) || "Inconnu du fichier client")+'</small>' : '')+'</span>'+(l.src==="manuel"?'<span class="src">saisi</span>':'')+'<span class="q num">'+l.qty+'</span></button>'
       ).join("");
     }
     $("pph").textContent = "PPH " + fmtPph(pphMission(state));
     try{ renderTeam(); }catch(e){}
     document.body.classList.toggle("nohold", state.hold === false);
-    $("who").textContent = state.counter ? "Compteur : " + state.counter : "Compteur : à renseigner dans Menu";
+    $("who").textContent = state.counter || "";
     renderQty();
   }
   /* Dernier article scanné : le pavé modifie sa quantité (scan d’abord, quantité ensuite) */
@@ -690,10 +719,10 @@ body.control .list{flex:1 1 0}
     try{ showPending(); }catch(e){}
     const l = cam.pending ? null : lastL(), set = l ? editBuf !== "" : qtyBuf !== "";
     $("qtyBox").classList.toggle("set", set);
-    if(cam.pending){ $("qtyVal").textContent = set ? "× " + qtyBuf : "1"; $("qtyLbl").textContent = "Quantité du code en attente"; }
-    else if(l && set){ $("qtyVal").textContent = "× " + editBuf; $("qtyLbl").textContent = "Appuie sur ✓ Valider"; }
-    else if(l){ $("qtyVal").textContent = "× " + l.qty; $("qtyLbl").textContent = "Tape pour changer la quantité"; }
-    else { editBuf = ""; $("qtyVal").textContent = "1"; $("qtyLbl").textContent = "Scanne, puis tape la quantité"; }
+    if(cam.pending){ $("qtyVal").textContent = set ? "× " + qtyBuf : "1"; $("qtyLbl").textContent = "Quantité"; }
+    else if(l && set){ $("qtyVal").textContent = "× " + editBuf; $("qtyLbl").textContent = "Quantité à valider"; }
+    else if(l){ $("qtyVal").textContent = "× " + l.qty; $("qtyLbl").textContent = "Quantité"; }
+    else { editBuf = ""; $("qtyVal").textContent = "1"; $("qtyLbl").textContent = "Quantité"; }
     $("padOk").classList.toggle("idle", !(cam.pending || (l && set)));
   }
 
@@ -704,7 +733,7 @@ body.control .list{flex:1 1 0}
   function updateStatus(){
     if(controlMode){
       $("status").classList.add("ctrl"); $("status").classList.remove("off","typing");
-      $("statusTxt").textContent = "MODE CONTRÔLE — vérification, aucun comptage";
+      $("statusTxt").textContent = "Contrôle client · aucun comptage";
       return;
     }
     $("status").classList.remove("ctrl");
@@ -712,7 +741,7 @@ body.control .list{flex:1 1 0}
     const on = document.hasFocus() && !sheetOpen && !typing;
     $("status").classList.toggle("typing", typing);
     $("status").classList.toggle("off", !on && !typing);
-    $("statusTxt").textContent = typing ? "Saisie manuelle : tape le code puis « Ajouter »" : on ? "Prêt à scanner" : "Touche l’écran pour reprendre";
+    $("statusTxt").textContent = typing ? "Saisie manuelle" : on ? "Comptage normal" : "Scanner inactif · toucher l’écran";
   }
   /* Hardware scanner capture. Two injection modes exist on Zebra terminals:
      (A) one key event per character + Enter  -> caught by the global keydown wedge;
@@ -915,7 +944,7 @@ body.control .list{flex:1 1 0}
     if(l) editBuf = b; else qtyBuf = b;
     if(l){
       if(editBuf === "") flash("Quantité effacée : " + l.code + " reste à " + l.qty + ".", "");
-      else flashHTML('<span class="num">'+esc(l.code)+'</span> <span class="fsep">→</span> Quantité <b class="qn">'+editBuf+'</b> <span class="fsrc">appuie sur ✓ Valider</span>', "");
+      else flashHTML('<span class="num">'+esc(l.code)+'</span> <span class="fsep">→</span> Quantité <b class="qn">'+editBuf+'</b> <span class="fsrc">à valider (OK)</span>', "");
     }
     renderQty(); focusScan();
   });
@@ -1282,7 +1311,7 @@ body.control .list{flex:1 1 0}
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 47 du 17/11/2026</p>');
+      '<p style="font-size:13px">Version 48 du 17/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

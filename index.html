@@ -501,6 +501,9 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
 .sheet.sm label.mchk{flex-direction:row!important;align-items:center!important;justify-content:flex-start!important;text-align:left!important;font-weight:400!important;margin:0}
 .sheet.sm label.mchk span{flex:1}
 .sheet.sm label.mfield{font-weight:400!important;margin:0}
+.logon label[hidden]{display:none!important}
+#report{display:none}
+@media print{ body > *:not(#report){display:none!important} #report{display:block!important} body{background:#fff!important} @page{size:A4;margin:12mm} }
 </style>
 </head>
 <body>
@@ -566,6 +569,8 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
   <h1>Log on</h1>
   <p>Identification de l’inventoriste</p>
   <label>Nom de l’inventoriste<input id="lgName" autocomplete="off" autocapitalize="words" placeholder="Prénom et nom"></label>
+  <label>Code PIN (4 à 6 chiffres)<input id="lgPin" type="password" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="••••"></label>
+  <label id="lgPin2L" hidden>Nouvel inventoriste : confirme le PIN<input id="lgPin2" type="password" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="••••"></label>
   <label>Matricule / badge (facultatif)<input id="lgBadge" autocomplete="off" inputmode="text" placeholder="ex. 20297013"></label>
   <div class="lerr" id="lgErr"></div>
   <button class="lgo" id="lgGo">Log on</button>
@@ -591,7 +596,7 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
   function loadArch(){ try{ const a = JSON.parse(localStorage.getItem(ARCH)); return Array.isArray(a) ? a : []; }catch(e){ return []; } }
   function saveArch(a){ localStorage.setItem(ARCH, JSON.stringify(a)); }
   function save(){
-    try{ localStorage.setItem(KEY, JSON.stringify(state)); if(state.team) scheduleSync(); return true; }
+    try{ localStorage.setItem(KEY, JSON.stringify(state)); if(state.team) scheduleSync(); try{ scheduleBackup(); keepAwake(); }catch(e){} return true; }
     catch(e){
       /* Memory full: drop the oldest archives that were already exported, then retry */
       try{
@@ -1033,16 +1038,197 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
     $("logon").classList.add("on");
     setTimeout(() => $("lgName").focus(), 50);
   }
-  function doLogon(){
-    const n = $("lgName").value.trim().replace(/\s+/g, " ");
-    if(n.length < 2){ beep(false); $("lgErr").textContent = "Indique ton nom pour commencer."; $("lgName").focus(); return; }
-    state.counter = n; state.badge = $("lgBadge").value.trim(); state.loggedIn = true; state.sessionStart = new Date().toISOString();
+  /* Inventoristes et PIN (stockés sur ce terminal, PIN haché) */
+  const USERS_KEY = "comptage-users";
+  const ukey = n => n.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim();
+  function loadUsers(){ try{ return JSON.parse(localStorage.getItem(USERS_KEY)) || {}; }catch(e){ return {}; } }
+  function saveUsers(u){ try{ localStorage.setItem(USERS_KEY, JSON.stringify(u)); }catch(e){} }
+  async function pinHash(pin, salt){
+    const d = new TextEncoder().encode(salt + "|" + pin);
+    try{ const h = await crypto.subtle.digest("SHA-256", d); return [...new Uint8Array(h)].map(b => b.toString(16).padStart(2,"0")).join(""); }
+    catch(e){ let x = 0; for(const c of salt + "|" + pin) x = (x * 31 + c.charCodeAt(0)) >>> 0; return "w" + x.toString(16); }
+  }
+  const isAdmin = () => { const u = loadUsers()[ukey(state.counter || "")]; return !!(u && u.admin); };
+  let lgTries = 0;
+  async function doLogon(){
+    const n = $("lgName").value.trim().replace(/\s+/g, " "), pin = $("lgPin").value.trim(), err = t => { beep(false); $("lgErr").textContent = t; };
+    if(n.length < 2){ err("Indique ton nom."); $("lgName").focus(); return; }
+    if(!/^\d{4,6}$/.test(pin)){ err("Le PIN doit faire 4 à 6 chiffres."); $("lgPin").focus(); return; }
+    const users = loadUsers(), k = ukey(n), u = users[k];
+    if(u){
+      if(await pinHash(pin, u.salt) !== u.hash){ lgTries++; $("lgPin").value = ""; err("PIN incorrect" + (lgTries >= 3 ? " (" + lgTries + " essais). Le responsable peut réinitialiser ton PIN." : ".")); $("lgPin").focus(); return; }
+    } else {
+      if($("lgPin2L").hidden){ $("lgPin2L").hidden = false; $("lgErr").textContent = ""; $("lgPin2").focus(); return; }
+      if($("lgPin2").value.trim() !== pin){ $("lgPin2").value = ""; err("Les deux PIN ne correspondent pas."); $("lgPin2").focus(); return; }
+      const salt = Math.random().toString(36).slice(2, 12), first = !Object.keys(users).length;
+      users[k] = {name: n, salt, hash: await pinHash(pin, salt), admin: first, created: new Date().toISOString()};
+      saveUsers(users);
+      logAct(first ? "Création inventoriste (responsable)" : "Création inventoriste", "", n, "", "");
+    }
+    lgTries = 0;
+    state.counter = (u && u.name) || n; state.badge = $("lgBadge").value.trim(); state.loggedIn = true; state.sessionStart = new Date().toISOString();
     logAct("Log on", "", state.badge, "", ""); save(); render();
+    $("lgPin").value = ""; $("lgPin2").value = ""; $("lgPin2L").hidden = true;
     $("logon").classList.remove("on"); beep(true);
-    flash("Bonjour " + n + " : scanne l’étiquette de zone pour commencer.", "zone"); focusScan();
+    flash("Bonjour " + state.counter + " : scanne l’étiquette de zone.", "zone"); focusScan();
   }
   $("lgGo").addEventListener("click", doLogon);
-  ["lgName","lgBadge"].forEach(id => $(id).addEventListener("keydown", e => { e.stopPropagation(); if(e.key === "Enter"){ e.preventDefault(); if(id === "lgName" && !$("lgBadge").value) $("lgBadge").focus(); else doLogon(); } }));
+  $("lgName").addEventListener("input", () => { $("lgPin2L").hidden = true; $("lgPin2").value = ""; });
+  ["lgName","lgPin","lgPin2","lgBadge"].forEach(id => $(id).addEventListener("keydown", e => { e.stopPropagation(); if(e.key === "Enter"){ e.preventDefault(); if(id === "lgName") $("lgPin").focus(); else doLogon(); } }));
+  function usersSheet(){
+    const users = loadUsers(), me = ukey(state.counter || "");
+    const items = Object.entries(users).sort((a,b) => a[1].name.localeCompare(b[1].name)).map(([k,u]) =>
+      '<div class="zitem"><span class="zn" style="font-size:17px">'+esc(u.name)+'</span><span class="zs">'+(u.admin ? 'Responsable' : 'Inventoriste')+'</span>'+
+      (k === me ? '' : '<div class="btnrow"><button class="btn" data-rs="'+esc(k)+'">Réinitialiser le PIN</button>'+(u.admin ? '' : '<button class="btn" data-ad="'+esc(k)+'">Nommer responsable</button>')+'</div>')+'</div>').join("");
+    openSheet('<h2>Inventoristes</h2><p>Les PIN sont enregistrés sur ce terminal. Réinitialiser un PIN : l’inventoriste en choisira un nouveau à son prochain log on.</p>'+
+      '<div class="zlist">'+(items || '<p>Aucun inventoriste.</p>')+'</div><div class="btnrow"><button class="btn" id="uNo">Fermer</button></div>');
+    $("uNo").onclick = closeSheet;
+    $("sheet").querySelectorAll("[data-rs]").forEach(b => b.onclick = () => { const u = loadUsers(), k = b.dataset.rs, nm = u[k] && u[k].name; delete u[k]; saveUsers(u); logAct("PIN réinitialisé", "", nm || k, "", ""); save(); usersSheet(); flash("PIN de " + nm + " réinitialisé.", "ok"); });
+    $("sheet").querySelectorAll("[data-ad]").forEach(b => b.onclick = () => { const u = loadUsers(); if(u[b.dataset.ad]){ u[b.dataset.ad].admin = true; saveUsers(u); } usersSheet(); });
+  }
+  /* ===== Sauvegarde serveur automatique (Firebase) ===== */
+  const BK_KEY = "comptage-bk-last", bkCode = () => "BK-" + deviceId.toUpperCase();
+  const BK = {timer: null, running: false, err: "", last: (() => { try{ return parseInt(localStorage.getItem(BK_KEY), 10) || 0; }catch(e){ return 0; } })()};
+  const bkOn = () => state.backup !== false;
+  function scheduleBackup(delay){ if(!bkOn()) return; clearTimeout(BK.timer); BK.timer = setTimeout(runBackup, delay == null ? 15000 : delay); }
+  async function runBackup(){
+    if(!bkOn() || BK.running) return;
+    if(!navigator.onLine){ BK.err = "Hors ligne : sauvegarde à la reconnexion"; return; }
+    BK.running = true;
+    try{
+      await fbInit();
+      const json = JSON.stringify(state);
+      if(json.length > 900000) throw new Error("Mission trop volumineuse pour la sauvegarde serveur : utilise l’export Excel.");
+      await db.collection("missions").doc(bkCode()).collection("devices").doc(deviceId).set({who: state.counter || "", lines: state.lines.length, qty: sum(state.lines), at: new Date().toISOString(), mission: state.mission || "", backup: json});
+      BK.last = Date.now(); BK.err = ""; try{ localStorage.setItem(BK_KEY, String(BK.last)); }catch(e){}
+    }catch(e){ BK.err = e && e.message && /volumineuse/.test(e.message) ? e.message : errMsg(e); }
+    BK.running = false;
+  }
+  window.addEventListener("online", () => scheduleBackup(2000));
+  document.addEventListener("visibilitychange", () => { if(document.hidden && BK.timer) runBackup(); });
+  const bkStatus = () => !bkOn() ? "Désactivée" : BK.err ? BK.err : BK.last ? "Dernière : " + new Date(BK.last).toLocaleString("fr-FR", {day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit"}) : "En attente du premier envoi";
+  function backupSheet(){
+    openSheet('<h2>Sauvegarde serveur</h2>'+
+      '<p>La mission est envoyée automatiquement sur le serveur quelques secondes après chaque scan. En cas de panne, de perte ou de réinitialisation du terminal, tu la récupères sur un autre appareil avec ce code :</p>'+
+      '<p class="num" style="font-size:30px;font-weight:700;color:var(--ink);text-align:center;margin:4px 0">'+bkCode()+'</p>'+
+      '<p style="text-align:center">'+esc(bkStatus())+'</p>'+
+      '<label class="chk"><input id="bkOn" type="checkbox"'+(bkOn() ? ' checked' : '')+'> Sauvegarde automatique activée</label>'+
+      '<div class="btnrow"><button class="btn primary" id="bkNow">Sauvegarder maintenant</button></div>'+
+      '<label>Restaurer une sauvegarde (code d’un autre terminal)<input id="bkCode" placeholder="BK-XXXXXXXX" autocomplete="off" autocapitalize="characters"></label>'+
+      '<div class="btnrow"><button class="btn" id="bkRes">Restaurer</button><button class="btn" id="bkNo">Fermer</button></div>');
+    $("bkNo").onclick = closeSheet;
+    $("bkOn").onchange = () => { state.backup = $("bkOn").checked; save(); if(bkOn()) scheduleBackup(500); };
+    $("bkNow").onclick = async () => { $("bkNow").textContent = "Envoi…"; await runBackup(); if(sheetOpen) backupSheet(); flash(BK.err ? "Sauvegarde impossible : " + BK.err : "Mission sauvegardée sur le serveur.", BK.err ? "bad" : "ok"); };
+    $("bkRes").onclick = () => restoreBackup($("bkCode").value);
+    $("bkCode").addEventListener("keydown", e => e.stopPropagation());
+  }
+  async function restoreBackup(code){
+    code = String(code || "").trim().toUpperCase().replace(/\s+/g, "");
+    if(!/^BK-[A-Z0-9]{4,}$/.test(code)){ flash("Code invalide : il commence par BK-.", "bad"); return; }
+    flash("Recherche de la sauvegarde…", "");
+    let d;
+    try{ await fbInit(); d = await db.collection("missions").doc(code).collection("devices").doc(code.slice(3).toLowerCase()).get({source: "server"}); }
+    catch(e){ flash("Restauration impossible : " + errMsg(e), "bad"); return; }
+    if(!d.exists || !d.data().backup){ flash("Aucune sauvegarde pour " + code + ".", "bad"); return; }
+    const b = d.data();
+    openSheet('<h2>Restaurer '+esc(code)+'</h2><p><b>'+esc(b.mission || "Mission sans nom")+'</b> · '+b.lines+' lignes · '+b.qty+' articles<br>Sauvegardée le '+new Date(b.at).toLocaleString("fr-FR")+(b.who ? ' par '+esc(b.who) : '')+'</p>'+
+      '<p>La mission actuelle de ce terminal sera archivée (Menu › Missions archivées), puis remplacée.</p>'+
+      '<div class="btnrow"><button class="btn" id="rsNo">Annuler</button><button class="btn primary" id="rsOk">Restaurer</button></div>');
+    $("rsNo").onclick = closeSheet;
+    $("rsOk").onclick = () => {
+      let nst; try{ nst = JSON.parse(b.backup); }catch(e){ flash("Sauvegarde illisible.", "bad"); return; }
+      if(!archiveCurrent()){ flash("Mémoire pleine : exporte puis supprime des archives avant de restaurer.", "bad"); return; }
+      nst.loggedIn = false; delete nst.team; delete nst.sync;
+      (nst.log = nst.log || []).push({t: new Date().toISOString(), action: "Restauration depuis " + code, zone: "", code: "", oldQ: "", newQ: "", who: ""});
+      try{ localStorage.setItem(KEY, JSON.stringify(nst)); }catch(e){ flash("Mémoire pleine.", "bad"); return; }
+      location.reload();
+    };
+  }
+  /* ===== Rapport client (PDF via impression) ===== */
+  function reportHTML(){
+    const L = state.lines, zs = [...new Set(L.map(l => l.zone))].sort(), who = [...new Set(L.map(l => l.who).filter(Boolean))];
+    const t0 = L.length ? new Date(Math.min(...L.map(l => Date.parse(l.t)))) : null, t1 = L.length ? new Date(Math.max(...L.map(l => Date.parse(l.t)))) : null;
+    const d = x => x ? x.toLocaleDateString("fr-FR", {day:"2-digit", month:"long", year:"numeric"}) : "—", h = x => x ? x.toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"}) : "—";
+    const refs = new Set(L.map(l => normCode(l.code))).size, tot = sum(L);
+    const num = n => Number(n).toLocaleString("fr-FR");
+    let ec = null; if(master){ try{ ec = computeEcarts(L); }catch(e){} }
+    const zrows = zs.map(z => { const zl = L.filter(l => l.zone === z), w = [...new Set(zl.map(l => l.who).filter(Boolean))].join(", "), te = new Date(Math.max(...zl.map(l => Date.parse(l.t))));
+      return '<tr><td>'+esc(z)+'</td><td class="r">'+num(zl.length)+'</td><td class="r">'+num(sum(zl))+'</td><td>'+esc(w || "—")+'</td><td>'+h(te)+'</td></tr>'; }).join("");
+    let ecHtml = "";
+    if(ec){
+      const T = ec.tot, rows = ec.rows.filter(r => r.ec).sort((a,b) => (Math.abs(b.vec || 0) - Math.abs(a.vec || 0)) || (Math.abs(b.ec) - Math.abs(a.ec)));
+      ecHtml = '<h2>Rapprochement avec le stock théorique</h2><table class="kv"><tr><td>Quantité théorique</td><td class="r">'+num(T.th)+'</td><td>Quantité comptée</td><td class="r">'+num(T.ct)+'</td></tr>'+
+        '<tr><td>Écart en quantité</td><td class="r">'+sgn(T.ct - T.th)+'</td><td>Références en écart</td><td class="r">'+num(T.refsEc)+' ('+num(T.missing)+' en manque, '+num(T.extra)+' en surplus)</td></tr>'+
+        (T.hasCost ? '<tr><td>Valeur théorique HT</td><td class="r">'+fmtEur(T.vth)+'</td><td>Valeur comptée HT</td><td class="r">'+fmtEur(T.vct)+'</td></tr><tr><td><b>Écart de valeur HT</b></td><td class="r"><b>'+fmtEur(T.vct - T.vth)+'</b></td><td>Codes inconnus du fichier</td><td class="r">'+num(T.unknown)+'</td></tr>' : '<tr><td>Codes inconnus du fichier</td><td class="r">'+num(T.unknown)+'</td><td colspan="2">Valorisation : prix d’achat absents du fichier client</td></tr>')+'</table>'+
+        (rows.length ? '<h3>Détail des écarts'+(rows.length > 200 ? ' (200 plus importants sur '+num(rows.length)+')' : '')+'</h3><table><thead><tr><th>Code</th><th>Désignation</th><th class="r">Théo.</th><th class="r">Compté</th><th class="r">Écart</th>'+(T.hasCost ? '<th class="r">Écart HT</th>' : '')+'<th>Zones</th></tr></thead><tbody>'+
+          rows.slice(0, 200).map(r => '<tr><td class="m">'+esc(r.code)+'</td><td>'+esc(r.name || r.ref || "")+'</td><td class="r">'+num(r.th)+'</td><td class="r">'+num(r.ct)+'</td><td class="r '+(r.ec < 0 ? 'neg' : 'pos')+'">'+sgn(r.ec)+'</td>'+(T.hasCost ? '<td class="r">'+(r.vec == null ? '—' : fmtEur(r.vec))+'</td>' : '')+'<td>'+esc(Array.isArray(r.zones) ? r.zones.join(" ") : r.zones || "")+'</td></tr>').join("")+'</tbody></table>' : '<p>Aucun écart : le comptage correspond au stock théorique.</p>');
+    }
+    return '<div class="rp"><header><div><div class="rt">Rapport d’inventaire physique</div><div class="rs">'+esc(state.mission || "Mission sans nom")+'</div></div><div class="rd">'+d(t0)+'<br>'+h(t0)+' – '+h(t1)+'</div></header>'+
+      '<table class="kv"><tr><td>Statut</td><td>'+(state.finished ? 'Mission clôturée le '+new Date(state.finished).toLocaleString("fr-FR") : 'Comptage en cours')+'</td><td>Inventoriste(s)</td><td>'+esc(who.join(", ") || state.counter || "—")+'</td></tr>'+
+      '<tr><td>Zones comptées</td><td class="r">'+num(zs.length)+'</td><td>Lignes de comptage</td><td class="r">'+num(L.length)+'</td></tr>'+
+      '<tr><td>Articles comptés</td><td class="r"><b>'+num(tot)+'</b></td><td>Références distinctes</td><td class="r">'+num(refs)+'</td></tr>'+
+      '<tr><td>Durée du comptage</td><td class="r">'+fmtDur(missionSpan(state))+'</td><td>Cadence (PPH)</td><td class="r">'+fmtPph(pphMission(state))+'</td></tr></table>'+
+      ecHtml+
+      '<h2>Comptage par zone</h2><table><thead><tr><th>Zone</th><th class="r">Lignes</th><th class="r">Quantité</th><th>Inventoriste</th><th>Fin</th></tr></thead><tbody>'+zrows+'<tr class="tt"><td>Total</td><td class="r">'+num(L.length)+'</td><td class="r">'+num(tot)+'</td><td></td><td></td></tr></tbody></table>'+
+      '<p class="note">Les quantités reflètent le stock présent au moment du comptage. Le détail ligne par ligne et le journal des corrections figurent dans le fichier Excel remis avec ce rapport.</p>'+
+      '<div class="sig"><div><b>L’inventoriste</b><span>Nom : '+esc(state.counter || "")+'</span><span>Signature :</span></div><div><b>Le responsable du magasin</b><span>Nom :</span><span>Signature :</span></div></div>'+
+      '<footer>Édité le '+new Date().toLocaleString("fr-FR")+'</footer></div>';
+  }
+  const REPORT_CSS = '.rp{font:12px/1.4 Roboto,Arial,sans-serif;color:#111;max-width:190mm;margin:0 auto}.rp header{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #0F4C5C;padding-bottom:8px;margin-bottom:12px}.rp .rt{font-size:20px;font-weight:700;color:#0F4C5C}.rp .rs{font-size:15px;margin-top:2px}.rp .rd{text-align:right;font-size:12px;color:#444}.rp h2{font-size:14px;color:#0F4C5C;margin:18px 0 6px;border-bottom:1px solid #ccc;padding-bottom:3px}.rp h3{font-size:12px;margin:12px 0 4px}.rp table{width:100%;border-collapse:collapse;margin-bottom:6px}.rp th{background:#E2EEF0;text-align:left;font-weight:600;padding:4px 6px;border:1px solid #c9d6d9}.rp td{padding:3px 6px;border:1px solid #ddd;vertical-align:top}.rp .r{text-align:right;white-space:nowrap}.rp .m{font-family:monospace}.rp .neg{color:#B3261E}.rp .pos{color:#1F6E3A}.rp .kv td:nth-child(odd){background:#F5F7F8;color:#444;width:22%}.rp .tt td{font-weight:700;background:#F5F7F8}.rp .note{font-size:11px;color:#555;margin-top:10px}.rp .sig{display:flex;gap:16px;margin-top:22px}.rp .sig div{flex:1;border:1px solid #999;min-height:90px;padding:8px;display:flex;flex-direction:column;gap:14px}.rp footer{margin-top:16px;font-size:10px;color:#777;text-align:right}.rp tr{page-break-inside:avoid}';
+  function reportSheet(){
+    if(!state.lines.length){ flash("Rien à mettre dans le rapport : aucun article compté.", "bad"); return; }
+    openSheet('<h2>Rapport client</h2><p>Rapport d’inventaire prêt à signer'+(master ? ', avec les écarts'+(computeEcarts(state.lines).tot.hasCost ? ' valorisés en euros' : '') : ' (charge le stock théorique pour y ajouter les écarts)')+'.</p>'+
+      '<div class="btnrow"><button class="btn primary" id="rpPdf">Enregistrer en PDF / imprimer</button></div>'+
+      '<div class="btnrow"><button class="btn" id="rpDl">Télécharger le rapport</button><button class="btn" id="rpNo">Fermer</button></div>'+
+      '<p style="font-size:13px">Dans la fenêtre d’impression, choisis « Enregistrer au format PDF ».</p>');
+    $("rpNo").onclick = closeSheet;
+    $("rpPdf").onclick = () => {
+      let r = $("report"); if(!r){ r = document.createElement("div"); r.id = "report"; document.body.appendChild(r); }
+      r.innerHTML = '<style>'+REPORT_CSS+'</style>' + reportHTML();
+      const t = document.title; document.title = "Rapport inventaire " + (state.mission || "") + " " + new Date().toISOString().slice(0,10);
+      closeSheet(); logAct("Rapport client édité", "", "", sum(state.lines), ""); save();
+      setTimeout(() => { window.print(); document.title = t; }, 100);
+    };
+    $("rpDl").onclick = () => {
+      const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Rapport inventaire</title><style>body{margin:12mm}'+REPORT_CSS+'@media print{body{margin:0}}</style></head><body>'+reportHTML()+'</body></html>';
+      const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([html], {type: "text/html"}));
+      a.download = "Rapport inventaire " + (state.mission || "mission").replace(/[\\/:*?"<>|]/g, "-") + " " + new Date().toISOString().slice(0,10) + ".html";
+      document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+      flash("Rapport téléchargé : ouvre-le et imprime-le en PDF si besoin.", "ok");
+    };
+  }
+  /* ===== Scanner Zebra : guide de réglage ===== */
+  function scannerSheet(){
+    openSheet('<h2>Scanner et terminal</h2>'+
+      '<p><b>Réglage DataWedge (une seule fois)</b></p><ol style="margin:0;padding-left:20px;line-height:1.5">'+
+      '<li>Ouvre l’appli <b>DataWedge</b> › menu ⋮ › <b>Nouveau profil</b>, nomme-le « Comptage ».</li>'+
+      '<li><b>Applications associées</b> : ajoute <b>com.android.chrome</b> (et l’appli installée si elle apparaît), activité « * ».</li>'+
+      '<li><b>Entrée code-barres</b> : activée. Décodeurs : EAN-13, EAN-8, UPC-A, Code 128, Code 39.</li>'+
+      '<li><b>Sortie clavier (Keystroke)</b> : activée, « Envoyer la touche ENTRÉE » cochée, « Envoyer les caractères comme événements » cochée.</li>'+
+      '<li><b>Sortie Intent</b> : désactivée.</li></ol>'+
+      '<p><b>Verrouiller le terminal sur l’appli</b></p><ol style="margin:0;padding-left:20px;line-height:1.5">'+
+      '<li>Paramètres › Sécurité › <b>Épinglage de l’écran</b> : activé.</li>'+
+      '<li>Ouvre l’appli, touche le carré des applis récentes, puis l’icône de l’appli › <b>Épingler</b>.</li>'+
+      '<li>Pour sortir : maintenir Retour + carré quelques secondes.</li></ol>'+
+      '<p style="font-size:13px">Pour un vrai mode kiosque (plusieurs terminaux), Zebra fournit gratuitement « Enterprise Home Screen ».</p>'+
+      '<label class="chk"><input id="wkOn" type="checkbox"'+(state.wake === false ? '' : ' checked')+'> Garder l’écran allumé pendant le comptage</label>'+
+      '<div class="btnrow"><button class="btn" id="scNo">Fermer</button></div>');
+    $("scNo").onclick = closeSheet;
+    $("wkOn").onchange = () => { state.wake = $("wkOn").checked; save(); keepAwake(); };
+  }
+  /* Écran toujours allumé pendant une zone (évite la mise en veille et la perte de focus du scanner) */
+  let wakeLock = null;
+  async function keepAwake(){
+    const want = state.wake !== false && !!state.zone && state.loggedIn && !document.hidden;
+    try{
+      if(want && !wakeLock && navigator.wakeLock){ wakeLock = await navigator.wakeLock.request("screen"); wakeLock.addEventListener("release", () => { wakeLock = null; }); }
+      else if(!want && wakeLock){ await wakeLock.release(); wakeLock = null; }
+    }catch(e){ wakeLock = null; }
+  }
+  document.addEventListener("visibilitychange", keepAwake);
+  /* Le scanner reprend la main dès qu’on touche l’écran ou que l’appli revient au premier plan */
+  window.addEventListener("focus", () => { if(!sheetOpen && !$("logon").classList.contains("on")) focusScan(); });
+  document.addEventListener("pointerup", e => { if(!sheetOpen && !$("logon").classList.contains("on") && !e.target.closest("input,textarea,select")) setTimeout(focusScan, 0); });
   function logOffSheet(){
     if(state.zone){ openSheet('<h2>Zone encore ouverte</h2><p>Ferme d’abord la zone <b class="num">'+esc(state.zone)+'</b> avant le log off.</p><div class="btnrow"><button class="btn primary" id="loK">Compris</button></div>'); $("loK").onclick = closeSheet; return; }
     const since = state.sessionStart || "", mine = state.lines.filter(l => l.who === state.counter && (!since || l.t >= since));
@@ -1378,6 +1564,8 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
       '<div class="mexp '+(isExported() ? 'ok">Mission exportée' : 'no">Pas encore exportée depuis la dernière modification')+'</div>'+
       row("xX", "xls", "Exporter Excel", "Total, détail par zone, journal ("+(state.log||[]).length+")")+
       row("xC", "csv", "Exporter CSV", "")+
+      row("xRep", "csv", "Rapport client (PDF)", "Synthèse, écarts, signatures")+
+      row("xBk", "drive", "Sauvegarde serveur", bkCode() + " · " + bkStatus(), BK.err ? "" : (bkOn() && BK.last ? "on" : ""))+
       '<div class="msec">Outils</div>'+
       row("xCtrl", "ctrl", "Mode contrôle client", controlMode ? "Activé" : "Vérifier sans compter", controlMode ? "on" : "")+
       row("xMaster", "db", "Stock théorique", master ? master.items.length + " références chargées" : "Charger le fichier client")+
@@ -1386,6 +1574,8 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
       row("xDrive", "drive", "Google Drive", driveEnabled() ? "Connecté" : "Sauvegarde automatique", driveEnabled() ? "on" : "")+
       row("xMerge", "merge", "Fusionner un export", "Depuis un autre téléphone", "red")+
       row("xArch", "arch", "Missions archivées", String(loadArch().length))+
+      row("xScan", "beep", "Scanner et terminal", "Réglage DataWedge, épinglage, écran allumé")+
+      (isAdmin() ? row("xUsers", "team", "Inventoristes", "PIN et responsables") : '')+
       '<div class="msec">Réglages</div>'+
       '<label class="mchk"><input id="mhold" type="checkbox"'+(state.hold === false ? '' : ' checked')+'><span>Appui long pour fermer, annuler et corriger</span></label>'+
       '<label class="mchk"><input id="mv" type="checkbox"'+(state.confirm === false ? '' : ' checked')+'><span>Valider les codes inconnus du fichier client</span></label>'+
@@ -1397,7 +1587,7 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 52 du 17/11/2026</p>');
+      '<p class="mver">Version 53 du 17/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -1408,6 +1598,10 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
     $("xDrive").onclick = () => { keep(); driveSheet(); };
     $("xMaster").onclick = () => { keep(); masterSheet(); };
     $("xOff").onclick = () => { keep(); logOffSheet(); };
+    $("xRep").onclick = () => { keep(); reportSheet(); };
+    $("xBk").onclick = () => { keep(); backupSheet(); };
+    $("xScan").onclick = () => { keep(); scannerSheet(); };
+    if($("xUsers")) $("xUsers").onclick = () => { keep(); usersSheet(); };
     $("xCtrl").onclick = () => { keep(); closeSheet(); setControl(!controlMode); };
     if(master) $("xEc").onclick = () => { keep(); ecartsSheet("ec"); };
     $("xC").onclick = () => { keep(); exportCsv(); };
@@ -1440,7 +1634,7 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
   }
 
   /* Missions: archive instead of delete */
-  function settingsOf(s){ return {prefix:s.prefix, counter:s.counter, confirm:s.confirm, check:s.check, autoBackup:s.autoBackup, bigQty:s.bigQty, hold:s.hold, loggedIn:s.loggedIn, badge:s.badge, sessionStart:s.sessionStart}; }
+  function settingsOf(s){ return {prefix:s.prefix, counter:s.counter, confirm:s.confirm, check:s.check, autoBackup:s.autoBackup, bigQty:s.bigQty, hold:s.hold, loggedIn:s.loggedIn, badge:s.badge, sessionStart:s.sessionStart, backup:s.backup, wake:s.wake}; }
   function archiveCurrent(){
     if(!state.lines.length && !(state.log||[]).length) return true;
     const a = loadArch();
@@ -2088,9 +2282,6 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
   }
 
   /* Keep the screen on while counting, and ask Android not to clear storage */
-  let wakeLock = null;
-  async function keepAwake(){ try{ if("wakeLock" in navigator && document.visibilityState === "visible") wakeLock = await navigator.wakeLock.request("screen"); }catch(e){} }
-  document.addEventListener("visibilitychange", () => { if(document.visibilityState === "visible") keepAwake(); });
   keepAwake();
   try{ navigator.storage && navigator.storage.persist && navigator.storage.persist(); }catch(e){}
 

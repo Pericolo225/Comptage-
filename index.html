@@ -624,9 +624,11 @@ body:not(.control) .ctrlsrc{display:none}
   <h1>Log on</h1>
   <p>Identification de l’inventoriste</p>
   <label>Nom de l’inventoriste<input id="lgName" autocomplete="off" autocapitalize="words" placeholder="Prénom et nom"></label>
+  <label>Code inventaire (6 caractères, donné par l’administrateur)<input id="lgCode" maxlength="6" autocomplete="off" autocapitalize="characters" placeholder="Ex. 7KQ2MX" style="text-transform:uppercase;letter-spacing:.12em"></label>
   <label>Matricule / badge (facultatif)<input id="lgBadge" autocomplete="off" inputmode="text" placeholder="ex. 20297013"></label>
   <label class="lgadm"><input id="lgAdm" type="checkbox"> Connexion administrateur</label>
   <label id="lgPinL" hidden>Code PIN administrateur (4 à 6 chiffres)<input id="lgPin" type="password" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="••••"></label>
+  <p id="lgNewHint" hidden style="margin:6px 14px 0;font-size:13px;color:var(--muted)">Administrateur : laisse le code inventaire vide pour <b>créer un nouvel inventaire</b> ; un code sera généré pour les autres terminaux.</p>
   <label id="lgPin2L" hidden>Premier administrateur : confirme le PIN<input id="lgPin2" type="password" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="••••"></label>
   <div class="lerr" id="lgErr"></div>
   <button class="lgo" id="lgGo">Log on</button>
@@ -797,7 +799,7 @@ body:not(.control) .ctrlsrc{display:none}
     try{ const pr = planProgress(); $("prog").textContent = pr ? "Zones " + pr.done + "/" + pr.total : ""; }catch(e){}
     try{ renderTeam(); }catch(e){}
     document.body.classList.toggle("nohold", state.hold === false);
-    $("who").textContent = state.counter || "";
+    $("who").textContent = (state.counter || "") + (state.team ? " · inventaire " + state.team.code : "");
     renderQty();
   }
   /* Dernier article scanné : le pavé modifie sa quantité (scan d’abord, quantité ensuite) */
@@ -1093,7 +1095,7 @@ body:not(.control) .ctrlsrc{display:none}
   /* ===== Log on / log off ===== */
   function showLogon(){
     if(sheetOpen) closeSheet();
-    $("lgName").value = state.counter || ""; $("lgBadge").value = state.badge || ""; $("lgErr").textContent = "";
+    $("lgName").value = state.counter || ""; $("lgBadge").value = state.badge || ""; $("lgCode").value = state.team ? state.team.code : ""; $("lgErr").textContent = "";
     $("lgMeta").textContent = (state.mission ? "Mission : " + state.mission + " · " : "") + (state.lines.length ? fmtLines(state.lines.length) + (state.lines.length > 1 ? " déjà comptées" : " déjà comptée") + " sur ce terminal" : "Aucun comptage sur ce terminal");
     $("logon").classList.add("on");
     setTimeout(() => $("lgName").focus(), 50);
@@ -1111,6 +1113,39 @@ body:not(.control) .ctrlsrc{display:none}
   const isAdmin = () => !!(state.loggedIn && state.adminSession);
   const adminCount = () => Object.values(loadUsers()).filter(u => u.admin).length;
   let lgTries = 0;
+  /* Code inventaire : tous les terminaux qui saisissent le même code comptent la même mission (synchronisation + contrôle) */
+  async function logonInventory(raw, adm){
+    const err = t => { beep(false); $("lgErr").textContent = t; return false; };
+    let code = String(raw || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const cur = state.team ? state.team.code : "";
+    if(!code){
+      if(!adm) return err("Saisis le code inventaire donné par l’administrateur.");
+      if(state.lines.length && !state.finished) return err("Ce terminal a un inventaire en cours ("+fmtLines(state.lines.length)+"). Clôture-le ou fais « Nouvelle mission » avant d’en créer un autre, ou saisis son code.");
+      if(!navigator.onLine) return err("Pas de réseau : impossible de créer un inventaire.");
+      await fbInit();
+      let tries = 0; do{ code = genCode(); tries++; }while((code[0] === "K" || (await mref(code).get({source:"server"})).exists) && tries < 12);
+      await mref(code).set({name: state.mission || "Inventaire", createdAt: new Date().toISOString(), createdBy: fbUser.uid});
+      if(state.lines.length) archiveCurrent();
+      const keepS = settingsOf(state); state = Object.assign(blank(), keepS); loadMaster();
+      state.team = {code, joinedAt: new Date().toISOString()}; state.sync = {lines:{}, zones:{}, logN:0}; lastErr = ""; lastDevW = 0;
+      save(); startListeners(); runSync();
+      setTimeout(() => openSheet('<h2>Nouvel inventaire créé</h2><p>Code inventaire à donner aux inventoristes :</p><p class="num" style="font-size:42px;font-weight:700;text-align:center;letter-spacing:.12em;color:var(--ink);margin:6px 0">'+code+'</p><p>Chaque terminal saisit ce code au log on : tous les comptages sont synchronisés et contrôlables depuis n’importe quel terminal. Sur PC, ce code donne aussi le rapport et le suivi en direct.</p><div class="btnrow"><button class="btn primary" id="niOk">Compris</button></div>') || ($("niOk").onclick = closeSheet), 300);
+      return true;
+    }
+    if(code.length !== 6) return err("Le code inventaire contient 6 caractères.");
+    if(code === cur){ if(navigator.onLine){ fbInit().then(() => { startListeners(); runSync(); }).catch(() => {}); } return true; }
+    if(state.lines.length && cur && !state.finished) return err("Ce terminal compte encore l’inventaire " + cur + " (" + fmtLines(state.lines.length) + "). L’administrateur doit d’abord le clôturer ou faire « Nouvelle mission ».");
+    if(!navigator.onLine) return err("Pas de réseau : impossible de vérifier le code " + code + ".");
+    await fbInit();
+    const d = await mref(code).get({source: "server"});
+    if(!d.exists) return err("Code inventaire " + code + " inconnu. Vérifie-le auprès de l’administrateur.");
+    if(state.lines.length && (cur || state.finished)){ if(!archiveCurrent()) return err("Mémoire pleine : exporte et supprime des archives."); }
+    if(!state.lines.length || cur || state.finished){ const keepS = settingsOf(state); state = Object.assign(blank(), keepS); loadMaster(); }
+    state.mission = state.mission || d.data().name || "";
+    state.team = {code, joinedAt: new Date().toISOString()}; state.sync = {lines:{}, zones:{}, logN:0}; lastErr = ""; lastDevW = 0;
+    save(); startListeners(); runSync();
+    return true;
+  }
   async function doLogon(){
     const n = $("lgName").value.trim().replace(/\s+/g, " "), adm = $("lgAdm").checked, err = t => { beep(false); $("lgErr").textContent = t; };
     if(n.length < 2){ err("Indique ton nom."); $("lgName").focus(); return; }
@@ -1131,6 +1166,10 @@ body:not(.control) .ctrlsrc{display:none}
       } else { err("Ce nom n’est pas administrateur sur ce terminal. Un administrateur peut l’ajouter (Menu › Administrateurs)."); return; }
     }
     lgTries = 0;
+    $("lgGo").disabled = true; $("lgGo").textContent = "Connexion…";
+    const joined = await logonInventory($("lgCode").value, adm).catch(e => { err(errMsg(e)); return false; });
+    $("lgGo").disabled = false; $("lgGo").textContent = "Log on";
+    if(!joined) return;
     state.counter = name; state.badge = $("lgBadge").value.trim(); state.loggedIn = true; state.adminSession = adm; state.sessionStart = new Date().toISOString();
     logAct(adm ? "Log on administrateur" : "Log on", "", state.badge, "", ""); save(); render();
     $("lgPin").value = ""; $("lgPin2").value = ""; $("lgPin2L").hidden = true; $("lgAdm").checked = false; $("lgPinL").hidden = true;
@@ -1138,9 +1177,9 @@ body:not(.control) .ctrlsrc{display:none}
     flash("Bonjour " + state.counter + (adm ? " (administrateur)" : "") + " : scanne l’étiquette de zone.", "zone"); focusScan();
   }
   $("lgGo").addEventListener("click", doLogon);
-  $("lgAdm").addEventListener("change", () => { $("lgPinL").hidden = !$("lgAdm").checked; $("lgPin2L").hidden = true; $("lgErr").textContent = ""; if($("lgAdm").checked) $("lgPin").focus(); });
+  $("lgAdm").addEventListener("change", () => { $("lgPinL").hidden = !$("lgAdm").checked; $("lgNewHint").hidden = !$("lgAdm").checked; $("lgPin2L").hidden = true; $("lgErr").textContent = ""; if($("lgAdm").checked) $("lgPin").focus(); });
   $("lgName").addEventListener("input", () => { $("lgPin2L").hidden = true; $("lgPin2").value = ""; });
-  ["lgName","lgPin","lgPin2","lgBadge"].forEach(id => $(id).addEventListener("keydown", e => { e.stopPropagation(); if(e.key === "Enter"){ e.preventDefault(); doLogon(); } }));
+  ["lgName","lgPin","lgPin2","lgBadge","lgCode"].forEach(id => $(id).addEventListener("keydown", e => { e.stopPropagation(); if(e.key === "Enter"){ e.preventDefault(); doLogon(); } }));
   /* Actions sensibles : code PIN d’un administrateur de ce terminal */
   function requireAdmin(label, fn){
     const admins = Object.values(loadUsers()).filter(u => u.admin);
@@ -2220,7 +2259,7 @@ body:not(.control) .ctrlsrc{display:none}
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 66 du 17/11/2026</p>');
+      '<p class="mver">Version 67 du 17/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

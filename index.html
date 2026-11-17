@@ -1905,7 +1905,7 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 59 du 17/11/2026</p>');
+      '<p class="mver">Version 60 du 17/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -2415,13 +2415,13 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
       });
       const log = state.log || [];
       for(let i = sync.logN || 0; i < log.length; i++){ const x = log[i]; ops.push(b => b.set(m.collection("log").doc(deviceId + "_" + i), Object.assign({device:deviceId}, x))); }
-      const now = Date.now();
-      if(ops.length && (zoneOps || now - lastDevW > 20000)){
+      const now = Date.now(), fin = state.finished || "", finChanged = (sync.fin || "") !== fin;
+      if((ops.length && (zoneOps || now - lastDevW > 20000)) || finChanged){
         lastDevW = now;
-        ops.push(b => b.set(m.collection("devices").doc(deviceId), {who:state.counter||"", lines:state.lines.length, qty:sum(state.lines), at:new Date().toISOString()}));
+        ops.push(b => b.set(m.collection("devices").doc(deviceId), {who:state.counter||"", lines:state.lines.length, qty:sum(state.lines), at:new Date().toISOString(), finished: fin}));
       }
       if(!ops.length){ syncing = false; renderTeam(); return; }
-      state.sync = {lines:snapL, zones:snapZ, logN:log.length}; saveRaw();
+      state.sync = {lines:snapL, zones:snapZ, logN:log.length, fin}; saveRaw();
       for(let i = 0; i < ops.length; i += 400){
         const b = db.batch(); ops.slice(i, i + 400).forEach(f => f(b));
         inflight++; setPending(getPending() + 1);
@@ -2545,9 +2545,38 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
       ];
       const s = {mission: (state.mission || "mission") + "_equipe_" + state.team.code, lines, log, extraSheets: extra, useMaster: true};
       const ok = await exportXlsx(s);
+      if(ok && src !== "cache"){ state.teamExportedAt = new Date().toISOString(); state.teamExportedN = lines.length; save(); }
       if(ok && src === "cache") flash("Export fait SANS réseau : les derniers scans des autres téléphones peuvent manquer.", "bad");
       if(ok && dbl.length) flash("Export équipe fait. Attention : " + dbl.length + " zone(s) comptée(s) par plusieurs personnes (onglet Contrôles).", "bad");
     }catch(e){ beep(false); flash(errMsg(e), "bad"); }
+  }
+  /* Suppression en ligne : réservée au responsable, mission clôturée partout, équipe exportée, PIN + code */
+  async function deleteGuard(){
+    const block = (t, extra) => { beep(false); openSheet('<h2>Suppression impossible</h2>'+t+(extra || '')+'<div class="btnrow"><button class="btn" id="dgNo">Fermer</button></div>'); $("dgNo").onclick = () => teamSheet(); };
+    if(!isAdmin()){ block('<p>Seul le <b>responsable</b> de la mission peut supprimer les données en ligne. Les autres terminaux ne peuvent pas effacer le travail de l’équipe.</p>'); return; }
+    if(!state.finished){ block('<p>Clôture d’abord la mission sur ce terminal (Menu › Clôturer la mission).</p>'); return; }
+    flash("Vérification de l’équipe…", "");
+    let devs = [];
+    try{ await fbInit(); const ds = await mref().collection("devices").get({source: "server"}); ds.forEach(d => devs.push(Object.assign({id: d.id}, d.data()))); }
+    catch(e){ block('<p>Impossible de vérifier l’équipe : '+esc(errMsg(e))+'. Réessaie avec du réseau.</p>'); return; }
+    const open = devs.filter(d => d.id !== deviceId && !d.finished);
+    if(open.length){ block('<p>Ces terminaux n’ont <b>pas encore clôturé</b> la mission :</p><ul>'+open.map(d => '<li><b>'+esc(d.who || ("appareil " + d.id))+'</b> · '+(d.lines || 0)+' lignes · dernier envoi '+(d.at ? new Date(d.at).toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"}) : "?")+'</li>').join("")+'</ul><p>Chacun doit faire Menu › Clôturer la mission, avec du réseau.</p>'); return; }
+    if(!state.teamExportedAt){ block('<p>Fais d’abord <b>« Exporter toute l’équipe »</b> avec du réseau : c’est la seule copie complète une fois les données en ligne supprimées.</p>'); return; }
+    openSheet('<h2>Supprimer les données en ligne ?</h2><div class="expst no">Action définitive : tous les scans de la mission '+esc(state.team.code)+' seront effacés du serveur, pour tous les terminaux.</div>'+
+      '<p>Export équipe fait le '+new Date(state.teamExportedAt).toLocaleString("fr-FR")+'. Les comptages restent sur chaque terminal et dans les fichiers exportés.</p>'+
+      '<label>Ton PIN de responsable<input id="dgPin" type="password" inputmode="numeric" maxlength="6"></label>'+
+      '<label>Recopie le code de la mission ('+esc(state.team.code)+')<input id="dgCode" autocomplete="off" autocapitalize="characters"></label>'+
+      '<div class="btnrow"><button class="btn" id="dgNo">Annuler</button><button class="btn danger" id="dgOk">Supprimer définitivement</button></div>');
+    $("sheet").classList.add("errsheet");
+    $("sheet").querySelectorAll("input").forEach(x => x.addEventListener("keydown", e => e.stopPropagation()));
+    $("dgNo").onclick = () => teamSheet();
+    $("dgOk").onclick = async () => {
+      const u = loadUsers()[ukey(state.counter || "")];
+      if(!u || await pinHash($("dgPin").value.trim(), u.salt) !== u.hash){ beep(false); flash("PIN incorrect.", "bad"); return; }
+      if($("dgCode").value.trim().toUpperCase() !== String(state.team.code).toUpperCase()){ beep(false); flash("Le code recopié ne correspond pas.", "bad"); return; }
+      logAct("Suppression des données en ligne", "", state.team.code, "", ""); save();
+      deleteOnline();
+    };
   }
   async function deleteOnline(){
     flash("Suppression des données en ligne…", "");
@@ -2591,12 +2620,12 @@ body.bureau .bureau-ui{display:grid;grid-template-columns:360px 1fr;min-height:1
       '<div class="btnrow"><button class="btn primary" id="tExp">Exporter toute l’équipe (Excel)</button></div>'+
       '<div class="btnrow"><button class="btn" id="tSync">Resynchroniser</button><button class="btn" id="tLeave">Quitter l’équipe</button></div>'+
       '<p style="font-size:14px">Après remise du rapport au client, supprime les données en ligne : elles restent sur les téléphones et dans tes exports.</p>'+
-      '<div class="btnrow"><button class="btn danger" id="tDel">Supprimer les données en ligne</button></div>'+
+      (isAdmin() ? '<div class="btnrow"><button class="btn danger" id="tDel">Supprimer les données en ligne (responsable)</button></div>' : '')+
       '<div class="btnrow"><button class="btn" id="tBack">Retour</button></div>');
     $("tExp").onclick = exportTeam;
     $("tSync").onclick = () => { lastErr = ""; flash("Resynchronisation…", ""); reconcile().then(() => { flash("Resynchronisation faite.", "ok"); teamSheet(); }).catch(e => flash(errMsg(e), "bad")); };
     $("tLeave").onclick = leaveTeam;
-    $("tDel").onclick = () => confirmSheet("Supprimer les données en ligne ?", "Tous les scans de l’équipe pour la mission " + state.team.code + " seront effacés du serveur, pour tous les téléphones. Exporte toute l’équipe AVANT.", "Supprimer en ligne", deleteOnline);
+    if($("tDel")) $("tDel").onclick = () => deleteGuard();
     $("tBack").onclick = () => $("menuBtn").click();
   }
 

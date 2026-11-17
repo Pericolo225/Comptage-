@@ -463,6 +463,14 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
 .ctrlbar{background:#1F4E8C}
 .logon h1{border-bottom:3px solid #E8A33D}
 .logon > p{background:var(--brandSoft);color:var(--brandInk);font-style:normal;text-align:left}
+
+/* Fenêtres Zones et Menu : fonds distincts */
+.sheet.sz{background:color-mix(in srgb,#0F4C5C 9%,var(--surface))}
+.sheet.sm{background:color-mix(in srgb,#E8A33D 13%,var(--surface))}
+.sheet.sz h2,.sheet.sm h2{margin:-4px -18px 12px;padding:8px 18px;color:#fff}
+.sheet.sz h2{background:#0F4C5C}
+.sheet.sm h2{background:#8A5A12}
+.sheet input[type=checkbox]{accent-color:var(--brand)}
 </style>
 </head>
 <body>
@@ -1049,8 +1057,11 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
   })();
 
   /* Sheets */
-  function openSheet(html){ sheetOpen = true; $("sheet").innerHTML = html; $("veil").classList.add("open"); updateStatus(); }
-  function closeSheet(){ alarmStop(); $("sheet").classList.remove("errsheet","alarm"); sheetOpen = false; $("veil").classList.remove("open"); $("sheet").innerHTML = ""; focusScan(); }
+  function openSheet(html){ sheetOpen = true; $("sheet").innerHTML = html;
+    $("sheet").classList.remove("sz","sm");
+    if(html.startsWith("<h2>Zones</h2>")) $("sheet").classList.add("sz");
+    else if(html.startsWith("<h2>Mission</h2>")) $("sheet").classList.add("sm"); $("veil").classList.add("open"); updateStatus(); }
+  function closeSheet(){ alarmStop(); $("sheet").classList.remove("errsheet","alarm","sz","sm"); sheetOpen = false; $("veil").classList.remove("open"); $("sheet").innerHTML = ""; focusScan(); }
   $("veil").addEventListener("click", e => { if(e.target.id === "veil") closeSheet(); });
   function confirmSheet(title, text, label, fn){
     openSheet('<h2>'+esc(title)+'</h2><p>'+esc(text)+'</p><div class="btnrow"><button class="btn" id="cNo">Garder</button><button class="btn danger" id="cYes">'+esc(label)+'</button></div>');
@@ -1332,7 +1343,7 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
       '<div class="btnrow"><button class="btn" id="xArch">Missions archivées ('+loadArch().length+')</button></div>'+
       '<div class="btnrow">'+(state.finished ? '<button class="btn" id="xFin">Rouvrir la mission</button>' : '<button class="btn" id="xFin">Clôturer la mission</button>')+'</div>'+
       '<div class="btnrow"><button class="btn danger" id="xNew">Nouvelle mission</button><button class="btn" id="xNo">Fermer</button></div>'+
-      '<p style="font-size:13px">Version 49 du 17/11/2026</p>');
+      '<p style="font-size:13px">Version 50 du 17/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

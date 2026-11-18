@@ -776,6 +776,13 @@ body:not(.control) .ctrlsrc{display:none}
     g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
     o.connect(g); g.connect(ctx.destination); o.start(start); o.stop(start + dur + 0.02);
   }
+  /* Un son par chiffre (notes bien espacées : 2 et 3 ne se confondent pas) */
+  const KEY_HZ = {"0":392, "1":523, "2":659, "3":880, "4":1047, "5":1319, "6":1568, "7":1760, "8":2093, "9":2637};
+  function keyTone(k){
+    if(state.keySound === false || !KEY_HZ[k]) return;
+    const ctx = getCtx(); if(!ctx) return;
+    try{ tone(ctx, KEY_HZ[k], ctx.currentTime + 0.005, 0.09, "triangle", 0.45); }catch(e){}
+  }
   function beep(ok, kind){
     const ctx = getCtx();
     if(ctx){
@@ -1129,6 +1136,7 @@ body:not(.control) .ctrlsrc{display:none}
     b.addEventListener("pointerdown", e => e.preventDefault()));
   $("pad").addEventListener("click", e => {
     const k = e.target.closest("button")?.dataset.k; if(!k) return;
+    if(/^\d$/.test(k)) keyTone(k);
     if(k === "V"){ if(cam.pending) camValidate(); else validateQty(); focusScan(); return; }
     if(k === "S"){
       state.cumul = !state.cumul; save(); renderQty(); focusScan();
@@ -2481,6 +2489,7 @@ body:not(.control) .ctrlsrc{display:none}
       (isAdmin() ? row("xUsers", "lock", "Sécurité", "PIN administrateur de ce terminal") : '')+
       '<div class="msec">Réglages</div>'+
       '<label class="mchk"><input id="mhold" type="checkbox"'+(state.hold === false ? '' : ' checked')+'><span>Appui long pour fermer, annuler et corriger</span></label>'+
+      '<label class="mchk"><input id="mks" type="checkbox"'+(state.keySound === false ? '' : ' checked')+'><span>Un son différent pour chaque chiffre du pavé</span></label>'+
       '<label class="mchk"><input id="mv" type="checkbox"'+(state.confirm === false ? '' : ' checked')+'><span>Valider les codes inconnus du fichier client</span></label>'+
       '<label class="mchk"><input id="mck" type="checkbox"'+(state.check === false ? '' : ' checked')+'><span>Refuser les codes EAN invalides</span></label>'+
       '<label class="mchk"><input id="mab" type="checkbox"'+(state.autoBackup === false ? '' : ' checked')+'><span>Sauvegarde Excel à chaque fermeture de zone</span></label>'+
@@ -2490,8 +2499,8 @@ body:not(.control) .ctrlsrc{display:none}
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 79 du 18/11/2026</p>');
-    const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
+      '<p class="mver">Version 80 du 18/11/2026</p>');
+    const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.keySound = $("mks").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
     $("xX").onclick = () => { keep(); (state.team ? exportTeam() : exportXlsx()).then(ok => { if(ok && sheetOpen) $("menuBtn").click(); }); };
@@ -2539,7 +2548,7 @@ body:not(.control) .ctrlsrc{display:none}
   }
 
   /* Missions: archive instead of delete */
-  function settingsOf(s){ return {prefix:s.prefix, counter:s.counter, confirm:s.confirm, check:s.check, autoBackup:s.autoBackup, bigQty:s.bigQty, hold:s.hold, loggedIn:s.loggedIn, adminSession:s.adminSession, badge:s.badge, sessionStart:s.sessionStart, backup:s.backup, wake:s.wake, company:s.company, lblFmt:s.lblFmt, lblBox:s.lblBox, cumul:s.cumul}; }
+  function settingsOf(s){ return {prefix:s.prefix, counter:s.counter, confirm:s.confirm, check:s.check, autoBackup:s.autoBackup, bigQty:s.bigQty, hold:s.hold, loggedIn:s.loggedIn, adminSession:s.adminSession, badge:s.badge, sessionStart:s.sessionStart, backup:s.backup, wake:s.wake, company:s.company, lblFmt:s.lblFmt, lblBox:s.lblBox, cumul:s.cumul, keySound:s.keySound}; }
   function archiveCurrent(){
     if(!state.lines.length && !(state.log||[]).length) return true;
     const a = loadArch();

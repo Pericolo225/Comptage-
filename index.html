@@ -794,9 +794,9 @@ body:not(.control) .ctrlsrc{display:none}
     const ctx = getCtx(); if(!ctx) return;
     try{
       const t = ctx.currentTime + 0.005;
-      /* 1, 2, 3 : autant de bips que le chiffre, chacun dans son registre (grave, médium, aigu) */
-      const P = {"1": [392, "sine", 0.16], "2": [988, "triangle", 0.06], "3": [2349, "square", 0.045]}[k];
-      if(P){ for(let i = 0; i < +k; i++) tone(ctx, P[0], t + i * (P[2] + 0.035), P[2], P[1], k === "3" ? 0.22 : 0.5); }
+      /* 1, 2, 3 : un seul bip chacun, très éloignés (grave et doux / médium / très aigu et sec) */
+      const P = {"1": [330, "sine", 0.14, 0.6], "2": [1047, "triangle", 0.09, 0.5], "3": [3136, "square", 0.06, 0.18]}[k];
+      if(P) tone(ctx, P[0], t, P[2], P[1], P[3]);
       else tone(ctx, KEY_HZ[k], t, 0.09, "triangle", 0.45);
     }catch(e){}
   }
@@ -2516,7 +2516,7 @@ body:not(.control) .ctrlsrc{display:none}
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 82 du 18/11/2026</p>');
+      '<p class="mver">Version 83 du 18/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.keySound = $("mks").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

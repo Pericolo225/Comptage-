@@ -155,7 +155,10 @@ body.nohold .actions .hold small{display:none}
 
 .pad{display:grid;grid-template-columns:repeat(3,1fr) 1.15fr;gap:8px}
 .pad button.op{grid-column:4;font-size:26px;font-weight:700;background:var(--surface2);color:var(--ink)}
-.pad button.op[data-k="+"]{grid-row:1}.pad button.op[data-k="*"]{grid-row:2}
+.pad button.op[data-k="S"]{grid-row:1;font-size:15px;font-family:"Barlow",system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.05}
+.pad button.op[data-k="S"] small{font-size:10px;font-weight:600;color:var(--muted)}
+.pad button.op.cum.on{background:#F2B705;border-color:#c99600;color:#1a1a1a}.pad button.op.cum.on small{color:#1a1a1a;opacity:.8}
+.qty.cum{border-color:#F2B705;box-shadow:inset 4px 0 0 #F2B705}.pad button.op[data-k="*"]{grid-row:2}
 .pad button.ok{grid-column:4;grid-row:3/span 2;height:auto;background:var(--ok);border-color:transparent;color:#fff;font-family:"Barlow",system-ui,sans-serif;font-size:17px;font-weight:800;letter-spacing:.04em;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
 .pad button.ok .ck{font-size:34px;line-height:1}
 .pad button.ok.idle{background:var(--surface2);color:var(--muted);border-color:var(--line)}
@@ -637,7 +640,7 @@ body:not(.control) .ctrlsrc{display:none}
     <button class="num" data-k="4">4</button><button class="num" data-k="5">5</button><button class="num" data-k="6">6</button>
     <button class="num" data-k="7">7</button><button class="num" data-k="8">8</button><button class="num" data-k="9">9</button>
     <button class="fn" data-k="C">Effacer</button><button class="num" data-k="0">0</button><button class="fn" data-k="B" aria-label="Retour arrière">⌫</button>
-    <button class="op" data-k="+" aria-label="Plus : additionner un autre paquet">+</button><button class="op" data-k="*" aria-label="Fois : multiplier">×</button>
+    <button class="op cum" data-k="S" id="cumBtn" aria-label="Mode cumul : chaque touche ajoute sa valeur">Cumul<small>par 2, 3…</small></button><button class="op" data-k="*" aria-label="Fois : multiplier">×</button>
     <button class="ok idle" data-k="V" id="padOk">OK</button>
   </div>
   <div class="actions">
@@ -843,7 +846,15 @@ body:not(.control) .ctrlsrc{display:none}
     return t.split("+").reduce((s, term) => s + term.split("*").reduce((p, n) => p * parseInt(n, 10), 1), 0);
   }
   const qExpr = b => /[+*]/.test(b);
-  const qShow = b => b.replace(/\*/g, " × ").replace(/\+/g, " + ") + (qExpr(b) && !/[+*]$/.test(b) ? " = " + qEval(b) : "");
+  function qShow(b){
+    const t = b.replace(/[+*]$/, ""), terms = t.split("+");
+    if(terms.length > 2 && !/\*/.test(t)){            /* cumul : 2+2+2+2 -> 4 × 2 = 8 */
+      const same = terms.every(x => x === terms[0]);
+      if(same) return terms.length + " fois " + terms[0] + " = " + qEval(t);
+      return terms.length + " appuis = " + qEval(t);
+    }
+    return b.replace(/\*/g, " × ").replace(/\+/g, " + ") + (qExpr(b) && !/[+*]$/.test(b) ? " = " + qEval(b) : "");
+  }
   function lastL(){
     if(lastId === null || state.finished) return null;
     const l = state.lines.find(x => x.id === lastId);
@@ -893,6 +904,9 @@ body:not(.control) .ctrlsrc{display:none}
     else if(l){ $("qtyVal").textContent = "× " + l.qty; $("qtyLbl").textContent = "Quantité"; }
     else { editBuf = ""; $("qtyVal").textContent = "1"; $("qtyLbl").textContent = "Quantité"; }
     $("padOk").classList.toggle("idle", !(cam.pending || (l && set)));
+    $("cumBtn").classList.toggle("on", !!state.cumul); $("qtyBox").classList.toggle("cum", !!state.cumul);
+    if(state.cumul && !set) $("qtyLbl").textContent = "Cumul : tape 2, 2, 2…";
+    else if(state.cumul && set) $("qtyLbl").textContent = "Cumul";
   }
 
   /* Scanner input */
@@ -1116,11 +1130,22 @@ body:not(.control) .ctrlsrc{display:none}
   $("pad").addEventListener("click", e => {
     const k = e.target.closest("button")?.dataset.k; if(!k) return;
     if(k === "V"){ if(cam.pending) camValidate(); else validateQty(); focusScan(); return; }
+    if(k === "S"){
+      state.cumul = !state.cumul; save(); renderQty(); focusScan();
+      flash(state.cumul ? "Cumul activé : chaque touche ajoute sa valeur (2, 2, 2… ou 3, 3, 3…), puis OK." : "Cumul désactivé : les touches tapent un nombre.", "");
+      return;
+    }
     const l = cam.pending ? null : lastL();
     if(!cam.pending && !l){ beep(false); renderQty(); flash("Scanne d’abord l’article, puis tape sa quantité.", "bad"); focusScan(); return; }
     let b = l ? editBuf : qtyBuf;
     if(k === "C") b = "";
-    else if(k === "B") b = b.slice(0,-1);
+    else if(k === "B") b = state.cumul ? b.replace(/\+?\d+$/, "") : b.slice(0,-1);
+    else if(state.cumul && /\d/.test(k)){
+      if(k === "0"){ renderQty(); focusScan(); return; }
+      if(/[*]/.test(b)) b = "";                        /* on repart à zéro si un × traînait */
+      if(b.length < 600) b = b === "" ? k : b.replace(/\+$/, "") + "+" + k;
+    }
+    else if(k === "*" && state.cumul){ beep(false); flash("En mode cumul, pas de × : désactive « Cumul » pour multiplier.", "bad"); renderQty(); focusScan(); return; }
     else if(k === "+" || k === "*"){
       if(b === ""){ beep(false); flash("Tape d’abord un nombre, puis + ou ×.", "bad"); renderQty(); focusScan(); return; }
       b = b.replace(/[+*]$/, "") + k;
@@ -2465,7 +2490,7 @@ body:not(.control) .ctrlsrc{display:none}
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 78 du 18/11/2026</p>');
+      '<p class="mver">Version 79 du 18/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -2514,7 +2539,7 @@ body:not(.control) .ctrlsrc{display:none}
   }
 
   /* Missions: archive instead of delete */
-  function settingsOf(s){ return {prefix:s.prefix, counter:s.counter, confirm:s.confirm, check:s.check, autoBackup:s.autoBackup, bigQty:s.bigQty, hold:s.hold, loggedIn:s.loggedIn, adminSession:s.adminSession, badge:s.badge, sessionStart:s.sessionStart, backup:s.backup, wake:s.wake, company:s.company, lblFmt:s.lblFmt, lblBox:s.lblBox}; }
+  function settingsOf(s){ return {prefix:s.prefix, counter:s.counter, confirm:s.confirm, check:s.check, autoBackup:s.autoBackup, bigQty:s.bigQty, hold:s.hold, loggedIn:s.loggedIn, adminSession:s.adminSession, badge:s.badge, sessionStart:s.sessionStart, backup:s.backup, wake:s.wake, company:s.company, lblFmt:s.lblFmt, lblBox:s.lblBox, cumul:s.cumul}; }
   function archiveCurrent(){
     if(!state.lines.length && !(state.log||[]).length) return true;
     const a = loadArch();

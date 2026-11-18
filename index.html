@@ -1012,6 +1012,16 @@ body:not(.control) .ctrlsrc{display:none}
     $("mcReopen").onclick = () => requireAdmin("Rouvrir la mission", reopenMission);
     $("mcNew").onclick = () => requireAdmin("Nouvelle mission", newMissionSheet);
   }
+  /* Statut de l’inventaire sur le serveur : un inventaire clôturé n’accepte plus de nouveaux log on */
+  async function setInvStatus(closed){
+    if(!state.team) return;
+    try{ await fbInit(); await mref().collection("devices").doc("status").set({closed: !!closed, at: new Date().toISOString(), by: state.counter || ""}); }
+    catch(e){ flash("Statut de l’inventaire non envoyé (pas de réseau) : refais la clôture avec du réseau.", "bad"); }
+  }
+  async function invClosed(code){
+    try{ await fbInit(); const d = await mref(code).collection("devices").doc("status").get({source: "server"}); return d.exists && d.data().closed ? d.data() : null; }
+    catch(e){ return null; }
+  }
   function finishMission(){
     if(cam.pending){ beep(false); flash("Valide ou ignore d’abord le code " + cam.pending + ".", "bad"); return; }
     if(state.finished){ flash("Mission déjà clôturée.", ""); return; }
@@ -1027,6 +1037,7 @@ body:not(.control) .ctrlsrc{display:none}
       if(state.zone){ segClose(state.zone); if(linesOf(state.zone).length) markClosed(state.zone); state.zone = null; }
       state.finished = new Date().toISOString();
       logAct("Clôture de la mission", "", "", sum(state.lines), "");
+      setInvStatus(true);
       qtyBuf = ""; if(cam.on) stopCam(); save(); render(); closeSheet(); beep(true, "zone");
       flash("Mission clôturée : " + fmtLines(state.lines.length) + ", " + fmtQty(sum(state.lines)) + ".", "ok");
       const dn = driveEnabled() ? driveNameMission(state) : null;
@@ -1037,6 +1048,7 @@ body:not(.control) .ctrlsrc{display:none}
   function reopenMission(){
     if(!state.finished) return;
     state.finished = null; logAct("Réouverture de la mission", "", "", "", "");
+    setInvStatus(false);
     save(); render(); closeSheet(); flash("Mission rouverte : scanne une zone pour reprendre.", "zone");
   }
   function openZone(z, force){
@@ -1122,7 +1134,7 @@ body:not(.control) .ctrlsrc{display:none}
   /* ===== Log on / log off ===== */
   function showLogon(){
     if(sheetOpen) closeSheet();
-    $("lgName").value = state.counter || ""; $("lgBadge").value = state.badge || ""; try{ lgShow(); }catch(e){} $("lgCode").value = state.team ? state.team.code : ""; $("lgErr").textContent = "";
+    $("lgName").value = state.counter || ""; $("lgBadge").value = state.badge || ""; try{ lgShow(); }catch(e){} $("lgCode").value = state.team && !state.finished ? state.team.code : ""; $("lgErr").textContent = "";
     $("lgMeta").textContent = (state.mission ? "Mission : " + state.mission + " · " : "") + (state.lines.length ? fmtLines(state.lines.length) + (state.lines.length > 1 ? " déjà comptées" : " déjà comptée") + " sur ce terminal" : "Aucun comptage sur ce terminal");
     $("logon").classList.add("on");
     setTimeout(() => $("lgName").focus(), 50);
@@ -1231,6 +1243,11 @@ body:not(.control) .ctrlsrc{display:none}
       return true;
     }
     if(code.length !== 6) return err("Le code inventaire contient 6 caractères.");
+    if(navigator.onLine){
+      const cl = await invClosed(code);
+      if(cl && !adm) return err("L’inventaire " + code + " est clôturé" + (cl.at ? " depuis le " + new Date(cl.at).toLocaleString("fr-FR", {dateStyle: "short", timeStyle: "short"}) : "") + ". Demande un nouveau code à l’administrateur.");
+      if(cl && adm) flash("Inventaire " + code + " clôturé : accès administrateur (consultation, export, réouverture).", "zone");
+    }
     if(code === cur){ if(navigator.onLine){ fbInit().then(() => { startListeners(); runSync(); }).catch(() => {}); } return true; }
     if(state.lines.length && cur && !state.finished) return err("Ce terminal compte encore l’inventaire " + cur + " (" + fmtLines(state.lines.length) + "). Saisis le code " + cur + ", ou l’administrateur doit d’abord clôturer ou faire « Nouvelle mission ».");
     if(!navigator.onLine) return err("Pas de réseau : impossible de vérifier le code " + code + ".");
@@ -1925,6 +1942,7 @@ body:not(.control) .ctrlsrc{display:none}
       LIVE.unsubs.push(m.collection("devices").onSnapshot(sn => {
         Object.keys(LIVE.rows).forEach(k => { if(k.startsWith(code + "/")) delete LIVE.rows[k]; });
         sn.forEach(d => { const x = d.data();
+          if(d.id === "status") return;
           if(d.id === "plan"){ LIVE.plans[code] = x.plan || []; return; }
           if(d.id !== "backup" && x.backup) return;
           if(d.id === "backup"){
@@ -2426,7 +2444,7 @@ body:not(.control) .ctrlsrc{display:none}
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 76 du 18/11/2026</p>');
+      '<p class="mver">Version 77 du 18/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
@@ -2973,6 +2991,7 @@ body:not(.control) .ctrlsrc{display:none}
     const m = mref();
     unsubs.push(m.collection("zones").onSnapshot(s => { teamZones = {}; s.forEach(d => { teamZones[d.id] = d.data(); }); }, e => { lastErr = errMsg(e); renderTeam(); }));
     unsubs.push(m.collection("devices").onSnapshot(s => { teamDevices = {}; s.forEach(d => {
+      if(d.id === "status") return;
       if(d.id === "plan"){ const pl = d.data().plan || []; if(JSON.stringify(pl) !== JSON.stringify(state.plan || [])){ state.plan = pl; saveRaw(); } return; }
       teamDevices[d.id] = d.data(); }); renderTeam(); try{ render(); }catch(e){} }, () => {}));
     unsubs.push(m.collection("zones").onSnapshot(() => { try{ render(); }catch(e){} }, () => {}));
@@ -2989,7 +3008,7 @@ body:not(.control) .ctrlsrc{display:none}
   window.addEventListener("offline", renderTeam);
   function teamTotals(){
     let n = 0, q = 0, devs = 0;
-    Object.entries(teamDevices).forEach(([id, d]) => { if(id === deviceId || id === "plan" || d.backup) return; devs++; n += d.lines || 0; q += d.qty || 0; });
+    Object.entries(teamDevices).forEach(([id, d]) => { if(id === deviceId || id === "plan" || id === "status" || d.backup) return; devs++; n += d.lines || 0; q += d.qty || 0; });
     return {devs: devs + 1, n: n + state.lines.length, q: q + sum(state.lines)};
   }
   function renderTeam(){
@@ -3090,7 +3109,7 @@ body:not(.control) .ctrlsrc{display:none}
     let devs = [];
     try{ await fbInit(); const ds = await mref().collection("devices").get({source: "server"}); ds.forEach(d => devs.push(Object.assign({id: d.id}, d.data()))); }
     catch(e){ block('<p>Impossible de vérifier l’équipe : '+esc(errMsg(e))+'. Réessaie avec du réseau.</p>'); return; }
-    const open = devs.filter(d => d.id !== deviceId && d.id !== "plan" && !d.backup && !d.finished);
+    const open = devs.filter(d => d.id !== deviceId && d.id !== "plan" && d.id !== "status" && !d.backup && !d.finished);
     if(open.length){ block('<p>Ces terminaux n’ont <b>pas encore clôturé</b> la mission :</p><ul>'+open.map(d => '<li><b>'+esc(d.who || ("appareil " + d.id))+'</b> · '+(d.lines || 0)+' lignes · dernier envoi '+(d.at ? new Date(d.at).toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"}) : "?")+'</li>').join("")+'</ul><p>Chacun doit faire Menu › Clôturer la mission, avec du réseau.</p>'); return; }
     if(!state.teamExportedAt){ block('<p>Fais d’abord <b>« Exporter Excel (tout l’inventaire) »</b> avec du réseau : c’est la seule copie complète une fois les données en ligne supprimées.</p>'); return; }
     openSheet('<h2>Supprimer les données en ligne ?</h2><div class="expst no">Action définitive : tous les scans de la mission '+esc(state.team.code)+' seront effacés du serveur, pour tous les terminaux.</div>'+

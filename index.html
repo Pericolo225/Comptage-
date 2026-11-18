@@ -409,6 +409,16 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
 .emptymsg{font-size:14px;padding:12px}
 .list{min-height:66px}
 .list:empty{min-height:0}
+/* v86 : liste plus haute (2 à 3 derniers articles visibles), pavé un peu réduit */
+.list{flex:2.2 1 0;min-height:122px}
+.pad{flex:6 1 0;grid-template-rows:repeat(4,minmax(40px,1fr))}
+.thead{align-items:center}
+.qty .padmin{flex:none;margin-right:10px;font:inherit;font-size:12px;font-weight:700;color:var(--brand);background:var(--surface);border:1px solid var(--brand);border-radius:6px;padding:5px 8px}
+.padshow{display:none;flex:none;padding:13px;font:inherit;font-size:17px;font-weight:700;color:#fff;background:var(--brand);border:0;border-radius:var(--r-md)}
+body.listfull .padshow{display:block}
+.qty .lbl{flex:1}
+body.listfull .pad,body.listfull .qty,body.listfull #pend{display:none!important}
+body.listfull .list{flex:1 1 auto;min-height:0}
 /* Saisie manuelle */
 .manual{gap:4px}
 .manual input{border:1px solid var(--line);border-radius:0;font-size:18px;padding:8px 10px;box-shadow:none}
@@ -643,10 +653,12 @@ body:not(.control) .ctrlsrc{display:none}
   </div>
 
   <div class="qty" id="qtyBox">
+    <button class="padmin" id="padMin" aria-label="Réduire le pavé pour voir toute la zone">▾ Réduire</button>
     <span class="lbl" id="qtyLbl">Quantité du prochain scan</span>
     <span class="val num" id="qtyVal">1</span>
   </div>
 
+  <button class="padshow" id="padShow">▴ Afficher le pavé numérique</button>
   <div class="pad" id="pad">
     <button class="num" data-k="1">1</button><button class="num" data-k="2">2</button><button class="num" data-k="3">3</button>
     <button class="num" data-k="4">4</button><button class="num" data-k="5">5</button><button class="num" data-k="6">6</button>
@@ -849,8 +861,8 @@ body:not(.control) .ctrlsrc{display:none}
     } else if(!zl.length){
       list.innerHTML = "";
     } else {
-      const rows = zl.slice(-60).reverse(), n = zl.length;
-      list.innerHTML = '<div class="thead"><span class="ix">#</span><span class="code">ARTICLE</span><span class="q">QUANTITÉ</span></div>' + rows.map((l,i) =>
+      const full = document.body.classList.contains("listfull"), rows = (full ? zl : zl.slice(-60)).slice().reverse(), n = zl.length;
+      list.innerHTML = '<div class="thead"><span class="ix">#</span><span class="code">ARTICLE' + (full ? ' · toute la zone (' + n + ')' : '') + '</span><span class="q">QUANTITÉ</span></div>' + rows.map((l,i) =>
         '<button class="row'+(i===0?' latest':'')+'" data-id="'+l.id+'"><span class="ix num">'+(n-i)+'</span><span class="code"><span class="num">'+esc(l.code)+'</span>'+(master ? '<small class="nm'+(itemOf(l.code) ? '' : ' unk')+'">'+esc(nameOf(l.code) || "Inconnu du fichier client")+'</small>' : '')+'</span>'+(l.src==="manuel"?'<span class="src">saisi</span>':'')+'<span class="q num">'+l.qty+'</span></button>'
       ).join("");
     }
@@ -863,6 +875,12 @@ body:not(.control) .ctrlsrc{display:none}
   }
   /* Dernier article scanné : le pavé modifie sa quantité (scan d’abord, quantité ensuite) */
   let lastId = null, editBuf = "";
+  /* Vue « toute la zone » : la liste prend la place du pavé ; un nouveau scan ramène le pavé */
+  function listFull(on){
+    document.body.classList.toggle("listfull", !!on); render();
+    if(on){ $("list").scrollTop = 0; if(state.zone) flash("Toute la zone : " + fmtLines(linesOf(state.zone).length) + ", " + fmtQty(sum(linesOf(state.zone))) + ". Un scan ramène le pavé.", ""); }
+    focusScan();
+  }
   /* Comptage par paquets : « 12+12+10 » ou « 10×4 » ou « 6×4+3 ». Renvoie le total (NaN si incomplet). */
   function qEval(b){
     if(b === "") return NaN;
@@ -1024,6 +1042,7 @@ body:not(.control) .ctrlsrc{display:none}
     }
     state.lines.push({id: state.seq++, zone: state.zone, code, qty, t: new Date().toISOString(), src: src || "scan", who: state.counter || ""});
     lastId = state.seq - 1; editBuf = "";
+    if(document.body.classList.contains("listfull")) document.body.classList.remove("listfull");
     qtyBuf = ""; if(!save()){ state.lines.pop(); state.seq--; render(); return; } render(); beep(true);
     if(master && !itemOf(code)){ flashHTML('<span class="num">'+esc(code)+'</span> <span class="fsep">→</span> inconnu du fichier client <b class="qn">'+qty+'</b>', "bad"); }
     else flashHTML((master ? esc(nameOf(code).slice(0, 28)) + ' · ' : '') + '<span class="num">'+esc(code)+'</span> <span class="fsep">→</span> Quantité <b class="qn">'+qty+'</b>' + (src === "manuel" ? ' <span class="fsrc">saisi</span>' : ''), "ok");
@@ -2197,7 +2216,10 @@ body:not(.control) .ctrlsrc{display:none}
     $("list").addEventListener("pointerup", () => { if(t){ stop(); flash("Appui long sur une ligne pour la corriger.", ""); } });
     $("list").addEventListener("pointercancel", stop);
     $("list").addEventListener("pointerleave", stop);
-    $("list").addEventListener("click", e => { const r = e.target.closest(".row"); if(r && !holdOn()) editLine(+r.dataset.id); });
+    $("padMin").addEventListener("click", () => listFull(true));
+    $("padShow").addEventListener("click", () => listFull(false));
+    $("list").addEventListener("click", e => {
+      const r = e.target.closest(".row"); if(r && !holdOn()) editLine(+r.dataset.id); });
   })();
 
   /* Sheets */
@@ -2517,7 +2539,7 @@ body:not(.control) .ctrlsrc{display:none}
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 85 du 18/11/2026</p>');
+      '<p class="mver">Version 86 du 18/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.keySound = $("mks").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

@@ -2412,7 +2412,7 @@ body:not(.control) .ctrlsrc{display:none}
       (isAdmin() ? row("xMaster", "db", "Stock théorique", master ? master.items.length + " références chargées" : "Charger le fichier client") : '')+
       (master && isAdmin() ? row("xEc", "ec", "Écarts", "Compté / théorique") : '')+
       (isAdmin() && state.team ? row("xTeam", "team", "Inventaire " + esc(state.team.code), "Terminaux connectés · suppression des données en ligne") : '')+
-      row("xArch", "arch", "Missions archivées", String(loadArch().length))+
+      (isAdmin() ? row("xArch", "arch", "Missions archivées", String(loadArch().length)) : '')+
       row("xScan", "beep", "Scanner et terminal", "Réglage DataWedge, épinglage, écran allumé")+
       (isAdmin() ? row("xUsers", "lock", "Sécurité", "PIN administrateur de ce terminal") : '')+
       '<div class="msec">Réglages</div>'+
@@ -2426,12 +2426,12 @@ body:not(.control) .ctrlsrc{display:none}
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 75 du 18/11/2026</p>');
+      '<p class="mver">Version 76 du 18/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
     $("xX").onclick = () => { keep(); (state.team ? exportTeam() : exportXlsx()).then(ok => { if(ok && sheetOpen) $("menuBtn").click(); }); };
-    $("xArch").onclick = () => { keep(); archSheet(); };
+    if($("xArch")) $("xArch").onclick = () => { keep(); archSheet(); };
     if($("xTeam")) $("xTeam").onclick = () => { keep(); teamSheet(); };
     if($("xMaster")) $("xMaster").onclick = () => { keep(); masterSheet(); };
     $("xOff").onclick = () => { keep(); logOffSheet(); };
@@ -2518,6 +2518,10 @@ body:not(.control) .ctrlsrc{display:none}
     if(!exp) $("nmX").onclick = () => { clearInterval(tick); alarmStop(); exportXlsx().then(r => { if(r) newMissionSheet(); }); };
   }
   function archSheet(){
+    if(!isAdmin()){ requireAdmin("Missions archivées", archSheet2); return; }
+    archSheet2();
+  }
+  function archSheet2(){
     const a = loadArch();
     const items = a.map(x => {
       const n = x.data.lines.length, q = x.data.lines.reduce((s,l)=>s+l.qty,0);
@@ -2531,23 +2535,24 @@ body:not(.control) .ctrlsrc{display:none}
     const find = id => loadArch().find(x => x.id === +id);
     $("sheet").querySelectorAll("[data-ax]").forEach(b => b.onclick = async () => {
       const x = find(b.dataset.ax); if(!x) return;
-      if(await exportXlsx(x.data)){ const all = loadArch(); const y = all.find(z => z.id === x.id); if(y){ y.exported = true; y.data.exportedSig = sigOf(y.data); try{ saveArch(all); }catch(e){} } archSheet(); }
+      if(await exportXlsx(x.data)){ const all = loadArch(); const y = all.find(z => z.id === x.id); if(y){ y.exported = true; y.data.exportedSig = sigOf(y.data); try{ saveArch(all); }catch(e){} } archSheet2(); }
     });
     $("sheet").querySelectorAll("[data-ar]").forEach(b => b.onclick = () => {
       const x = find(b.dataset.ar); if(!x) return;
-      confirmSheet("Restaurer « " + (x.mission || "Mission sans nom") + " » ?", "La mission en cours sera archivée, puis celle-ci redeviendra la mission active.", "Restaurer", () => {
+      requireAdmin("Restaurer une mission archivée", () => confirmSheet("Restaurer « " + (x.mission || "Mission sans nom") + " » ?", "La mission en cours sera archivée, puis celle-ci redeviendra la mission active.", "Restaurer", () => {
         if(!archiveCurrent()){ flash("Archivage impossible (mémoire pleine).", "bad"); return; }
         const rest = loadArch().filter(y => y.id !== x.id); try{ saveArch(rest); }catch(e){}
         stopTeam(); state = Object.assign(blank(), x.data); loadMaster(); qtyBuf = ""; save(); render(); teamBoot();
+        logAct("Mission archivée restaurée", "", x.mission || "", "", ""); save();
         flash("Mission « " + (x.mission || "sans nom") + " » restaurée.", "zone");
-      });
+      }));
     });
     $("sheet").querySelectorAll("[data-ad]").forEach(b => b.onclick = () => {
       const x = find(b.dataset.ad); if(!x) return;
-      confirmSheet("Supprimer définitivement ?", (x.exported ? "" : "Cette mission n’a JAMAIS été exportée. ") + "« " + (x.mission || "Mission sans nom") + " » sera effacée de ce terminal.", "Supprimer", () => {
+      requireAdmin("Supprimer une mission archivée", () => confirmSheet("Supprimer définitivement ?", (x.exported ? "" : "Cette mission n’a JAMAIS été exportée. ") + "« " + (x.mission || "Mission sans nom") + " » sera effacée de ce terminal.", "Supprimer", () => {
         try{ saveArch(loadArch().filter(y => y.id !== x.id)); }catch(e){}
         flash("Archive supprimée.", "");
-      });
+      }));
     });
   }
 

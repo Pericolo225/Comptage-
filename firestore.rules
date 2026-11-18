@@ -3,26 +3,13 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     function signedIn() { return request.auth != null; }
-    function isAdmin() {
-      return signedIn()
-        && request.auth.token.firebase.sign_in_provider == 'password'
-        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
-    }
-
-    // Liste des administrateurs : modifiable UNIQUEMENT depuis la console Firebase
-    match /admins/{uid} {
-      allow get: if signedIn() && request.auth.uid == uid;
-      allow list, create, update, delete: if false;
-    }
 
     match /missions/{code} {
       allow get: if signedIn();
       allow list, update: if false;
-      // Codes K… = sauvegardes de terminaux (tout terminal) ; autres codes = inventaires (administrateur)
       allow create: if signedIn() && code.size() == 6 && code != 'ADMINS'
-                    && request.resource.data.createdBy == request.auth.uid
-                    && (code.matches('K.*') || isAdmin());
-      allow delete: if isAdmin() || (code.matches('K.*') && signedIn());
+                    && request.resource.data.createdBy == request.auth.uid;
+      allow delete: if signedIn();
 
       match /{coll}/{docId} {
         allow read, write: if signedIn()

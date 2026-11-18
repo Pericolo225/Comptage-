@@ -154,7 +154,9 @@ body.nohold .actions .hold small{display:none}
 .qty.set .val{color:var(--act)}
 
 .pad{display:grid;grid-template-columns:repeat(3,1fr) 1.15fr;gap:8px}
-.pad button.ok{grid-column:4;grid-row:1/span 4;height:auto;background:var(--ok);border-color:transparent;color:#fff;font-family:"Barlow",system-ui,sans-serif;font-size:17px;font-weight:800;letter-spacing:.04em;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
+.pad button.op{grid-column:4;font-size:26px;font-weight:700;background:var(--surface2);color:var(--ink)}
+.pad button.op[data-k="+"]{grid-row:1}.pad button.op[data-k="*"]{grid-row:2}
+.pad button.ok{grid-column:4;grid-row:3/span 2;height:auto;background:var(--ok);border-color:transparent;color:#fff;font-family:"Barlow",system-ui,sans-serif;font-size:17px;font-weight:800;letter-spacing:.04em;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
 .pad button.ok .ck{font-size:34px;line-height:1}
 .pad button.ok.idle{background:var(--surface2);color:var(--muted);border-color:var(--line)}
 .pad button{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);height:clamp(44px,6.8vh,58px);
@@ -458,6 +460,7 @@ body,button,input,.num,.sheet h2,.pad button,.pad button.ok,.manual input,.logon
 .head .status.ctrl .dot,.head .status.typing .dot{background:#1F4E8C}
 .head .pph{color:inherit;font-weight:700;opacity:1}
 .cell strong,.row .q,.qty .val{font-style:normal!important}
+.qty .val.expr{font-size:24px!important}
 .cell small,.thead{letter-spacing:.02em}
 .row.latest{box-shadow:inset 3px 0 0 #E8A33D;background:color-mix(in srgb,#E8A33D 9%,var(--surface))}
 .flash.zone{border-left-color:#E8A33D}
@@ -634,6 +637,7 @@ body:not(.control) .ctrlsrc{display:none}
     <button class="num" data-k="4">4</button><button class="num" data-k="5">5</button><button class="num" data-k="6">6</button>
     <button class="num" data-k="7">7</button><button class="num" data-k="8">8</button><button class="num" data-k="9">9</button>
     <button class="fn" data-k="C">Effacer</button><button class="num" data-k="0">0</button><button class="fn" data-k="B" aria-label="Retour arrière">⌫</button>
+    <button class="op" data-k="+" aria-label="Plus : additionner un autre paquet">+</button><button class="op" data-k="*" aria-label="Fois : multiplier">×</button>
     <button class="ok idle" data-k="V" id="padOk">OK</button>
   </div>
   <div class="actions">
@@ -831,6 +835,15 @@ body:not(.control) .ctrlsrc{display:none}
   }
   /* Dernier article scanné : le pavé modifie sa quantité (scan d’abord, quantité ensuite) */
   let lastId = null, editBuf = "";
+  /* Comptage par paquets : « 12+12+10 » ou « 10×4 » ou « 6×4+3 ». Renvoie le total (NaN si incomplet). */
+  function qEval(b){
+    if(b === "") return NaN;
+    const t = b.replace(/[+*]$/, "");
+    if(!/^\d+([+*]\d+)*$/.test(t)) return NaN;
+    return t.split("+").reduce((s, term) => s + term.split("*").reduce((p, n) => p * parseInt(n, 10), 1), 0);
+  }
+  const qExpr = b => /[+*]/.test(b);
+  const qShow = b => b.replace(/\*/g, " × ").replace(/\+/g, " + ") + (qExpr(b) && !/[+*]$/.test(b) ? " = " + qEval(b) : "");
   function lastL(){
     if(lastId === null || state.finished) return null;
     const l = state.lines.find(x => x.id === lastId);
@@ -839,7 +852,8 @@ body:not(.control) .ctrlsrc{display:none}
   function validateQty(force){
     const l = lastL();
     if(!l || editBuf === ""){ flash("Scanne l’article, tape sa quantité, puis ✓ Valider.", ""); return; }
-    const q = parseInt(editBuf,10), big = parseInt(state.bigQty,10) || 50;
+    const q = qEval(editBuf), big = parseInt(state.bigQty,10) || 50, calc = qExpr(editBuf) ? qShow(editBuf.replace(/[+*]$/, "")) : "";
+    if(!(q > 0)){ beep(false); editBuf = ""; renderQty(); flash("Quantité 0 refusée : efface et retape.", "bad"); return; }
     if(!force && q >= big){
       beep(false);
       openSheet('<h2>Quantité élevée</h2><p class="num" style="font-size:20px;color:var(--ink)">'+esc(l.code)+'</p>'+
@@ -849,14 +863,14 @@ body:not(.control) .ctrlsrc{display:none}
       $("bqNo").onclick = () => { closeSheet(); editBuf = ""; renderQty(); flash("Retape la quantité de " + l.code + ", puis ✓ Valider.", "bad"); };
       return;
     }
-    if(q !== l.qty){ logAct("Quantité saisie", l.zone, l.code, l.qty, q); l.qty = q; }
+    if(q !== l.qty){ logAct(calc ? "Quantité saisie (" + calc + ")" : "Quantité saisie", l.zone, l.code, l.qty, q); l.qty = q; }
     editBuf = ""; save(); render(); beep(true);
-    flashHTML((master ? esc(nameOf(l.code).slice(0, 28)) + ' · ' : '') + '<span class="num">'+esc(l.code)+'</span> <span class="fsep">→</span> Quantité <b class="qn">'+q+'</b> ✓', "ok");
+    flashHTML((master ? esc(nameOf(l.code).slice(0, 28)) + ' · ' : '') + '<span class="num">'+esc(l.code)+'</span> <span class="fsep">→</span> Quantité <b class="qn">'+q+'</b>' + (calc ? ' <span class="fsrc">(' + esc(calc) + ')</span>' : '') + ' ✓', "ok");
   }
   /* Une quantité tapée mais pas validée bloque le scan suivant */
   function blockUnvalidated(){
     if(editBuf === "" || !lastL()) return false;
-    beep(false); flash("Valide ✓ ou efface d’abord la quantité " + editBuf + " de " + lastL().code + ".", "bad");
+    beep(false); flash("Valide ✓ ou efface d’abord la quantité " + qShow(editBuf) + " de " + lastL().code + ".", "bad");
     return true;
   }
   function showPending(){
@@ -865,15 +879,17 @@ body:not(.control) .ctrlsrc{display:none}
     if(cam.pending){
       $("pCode").textContent = cam.pending;
       const nm = master ? (itemOf(cam.pending) ? '<span>' + esc(nameOf(cam.pending).slice(0, 30)) + '</span><br>' : '<span class="unk">Inconnu du fichier client</span><br>') : "";
-      $("pQty").innerHTML = nm + "Quantité : <b>" + (qtyBuf || "1") + "</b>";
+      $("pQty").innerHTML = nm + "Quantité : <b>" + (qtyBuf ? esc(qShow(qtyBuf)) : "1") + "</b>";
     }
   }
   function renderQty(){
     try{ showPending(); }catch(e){}
     const l = cam.pending ? null : lastL(), set = l ? editBuf !== "" : qtyBuf !== "";
     $("qtyBox").classList.toggle("set", set);
-    if(cam.pending){ $("qtyVal").textContent = set ? "× " + qtyBuf : "1"; $("qtyLbl").textContent = "Quantité"; }
-    else if(l && set){ $("qtyVal").textContent = "× " + editBuf; $("qtyLbl").textContent = "Quantité à valider"; }
+    const bb = cam.pending ? qtyBuf : editBuf;
+    $("qtyVal").classList.toggle("expr", set && qExpr(bb));
+    if(cam.pending){ $("qtyVal").textContent = set ? (qExpr(qtyBuf) ? qShow(qtyBuf) : "× " + qtyBuf) : "1"; $("qtyLbl").textContent = "Quantité"; }
+    else if(l && set){ $("qtyVal").textContent = qExpr(editBuf) ? qShow(editBuf) : "× " + editBuf; $("qtyLbl").textContent = qExpr(editBuf) ? "Par paquets" : "Quantité à valider"; }
     else if(l){ $("qtyVal").textContent = "× " + l.qty; $("qtyLbl").textContent = "Quantité"; }
     else { editBuf = ""; $("qtyVal").textContent = "1"; $("qtyLbl").textContent = "Quantité"; }
     $("padOk").classList.toggle("idle", !(cam.pending || (l && set)));
@@ -950,8 +966,8 @@ body:not(.control) .ctrlsrc{display:none}
     if(zoneRegex().test(code)){ openZone(code.toUpperCase()); return; }
     if(!state.zone){ zoneError(code); return; }
     if(state.check !== false && !eanValid(code)){ codeError(code, src); return; }
-    const qty = qtyBuf === "" ? 1 : parseInt(qtyBuf,10);
-    if(!qty){ beep(false); flash("Quantité 0 refusée : efface et retape.", "bad"); qtyBuf=""; renderQty(); return; }
+    const qty = qtyBuf === "" ? 1 : qEval(qtyBuf);
+    if(!(qty > 0)){ beep(false); flash("Quantité 0 refusée : efface et retape.", "bad"); qtyBuf=""; renderQty(); return; }
     const big = parseInt(state.bigQty,10) || 50;
     if(!force && qty >= big){
       beep(false);
@@ -1105,11 +1121,16 @@ body:not(.control) .ctrlsrc{display:none}
     let b = l ? editBuf : qtyBuf;
     if(k === "C") b = "";
     else if(k === "B") b = b.slice(0,-1);
-    else if(b.length < 4) b = (b + k).replace(/^0+/, "");
+    else if(k === "+" || k === "*"){
+      if(b === ""){ beep(false); flash("Tape d’abord un nombre, puis + ou ×.", "bad"); renderQty(); focusScan(); return; }
+      b = b.replace(/[+*]$/, "") + k;
+      if(b.length > 24) b = b.slice(0, -1);
+    }
+    else { const last = b.split(/[+*]/).pop(); if(last.length < 4 && b.length < 24) b = b.slice(0, b.length - last.length) + (last + k).replace(/^0+/, ""); }
     if(l) editBuf = b; else qtyBuf = b;
     if(l){
       if(editBuf === "") flash("Quantité effacée : " + l.code + " reste à " + l.qty + ".", "");
-      else flashHTML('<span class="num">'+esc(l.code)+'</span> <span class="fsep">→</span> Quantité <b class="qn">'+editBuf+'</b> <span class="fsrc">à valider (OK)</span>', "");
+      else flashHTML('<span class="num">'+esc(l.code)+'</span> <span class="fsep">→</span> Quantité <b class="qn">'+esc(qShow(editBuf))+'</b> <span class="fsrc">à valider (OK)</span>', "");
     }
     renderQty(); focusScan();
   });
@@ -2444,7 +2465,7 @@ body:not(.control) .ctrlsrc{display:none}
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 77 du 18/11/2026</p>');
+      '<p class="mver">Version 78 du 18/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

@@ -159,7 +159,7 @@ body.nohold .actions .hold small{display:none}
 .pad button.op[data-k="S"] small{font-size:10px;font-weight:600;color:var(--muted)}
 .pad button.op.cum.on{background:#F2B705;border-color:#c99600;color:#1a1a1a}.pad button.op.cum.on small{color:#1a1a1a;opacity:.8}
 /* Mode cumul : seulement 1, 2, 3, grandes touches bien séparées */
-.pad.cumul{column-gap:16px}
+.pad.cumul{column-gap:30px;padding:0 4px}
 .pad.cumul button.num:not([data-k="1"]):not([data-k="2"]):not([data-k="3"]),.pad.cumul button.op[data-k="*"]{display:none}
 .pad.cumul button.num[data-k="1"],.pad.cumul button.num[data-k="2"],.pad.cumul button.num[data-k="3"]{grid-row:1/span 3;height:auto;min-height:150px;font-size:56px;font-weight:700;border-width:2px}
 .pad.cumul button.num[data-k="1"]{grid-column:1;background:#eef1f4;border-color:#9aa4ae;color:#33404d}
@@ -792,7 +792,13 @@ body:not(.control) .ctrlsrc{display:none}
   function keyTone(k){
     if(state.keySound === false || !KEY_HZ[k]) return;
     const ctx = getCtx(); if(!ctx) return;
-    try{ tone(ctx, KEY_HZ[k], ctx.currentTime + 0.005, 0.09, "triangle", 0.45); }catch(e){}
+    try{
+      const t = ctx.currentTime + 0.005;
+      /* 1, 2, 3 : autant de bips que le chiffre, chacun dans son registre (grave, médium, aigu) */
+      const P = {"1": [392, "sine", 0.16], "2": [988, "triangle", 0.06], "3": [2349, "square", 0.045]}[k];
+      if(P){ for(let i = 0; i < +k; i++) tone(ctx, P[0], t + i * (P[2] + 0.035), P[2], P[1], k === "3" ? 0.22 : 0.5); }
+      else tone(ctx, KEY_HZ[k], t, 0.09, "triangle", 0.45);
+    }catch(e){}
   }
   function beep(ok, kind){
     const ctx = getCtx();
@@ -2510,7 +2516,7 @@ body:not(.control) .ctrlsrc{display:none}
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 81 du 18/11/2026</p>');
+      '<p class="mver">Version 82 du 18/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.keySound = $("mks").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };

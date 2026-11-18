@@ -158,6 +158,17 @@ body.nohold .actions .hold small{display:none}
 .pad button.op[data-k="S"]{grid-row:1;font-size:15px;font-family:"Barlow",system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.05}
 .pad button.op[data-k="S"] small{font-size:10px;font-weight:600;color:var(--muted)}
 .pad button.op.cum.on{background:#F2B705;border-color:#c99600;color:#1a1a1a}.pad button.op.cum.on small{color:#1a1a1a;opacity:.8}
+/* Mode cumul : seulement 1, 2, 3, grandes touches bien séparées */
+.pad.cumul{column-gap:16px}
+.pad.cumul button.num:not([data-k="1"]):not([data-k="2"]):not([data-k="3"]),.pad.cumul button.op[data-k="*"]{display:none}
+.pad.cumul button.num[data-k="1"],.pad.cumul button.num[data-k="2"],.pad.cumul button.num[data-k="3"]{grid-row:1/span 3;height:auto;min-height:150px;font-size:56px;font-weight:700;border-width:2px}
+.pad.cumul button.num[data-k="1"]{grid-column:1;background:#eef1f4;border-color:#9aa4ae;color:#33404d}
+.pad.cumul button.num[data-k="2"]{grid-column:2;background:#e6f0fb;border-color:#5b8fd1;color:#174a8c}
+.pad.cumul button.num[data-k="3"]{grid-column:3;background:#e7f5ea;border-color:#5aa86c;color:#1d5e2c}
+.pad.cumul button.num::before{display:block;font-size:13px;font-weight:600;opacity:.7;content:"+"}
+.pad.cumul button.fn[data-k="C"]{grid-row:4;grid-column:1}
+.pad.cumul button.fn[data-k="B"]{grid-row:4;grid-column:2/span 2}
+.pad.cumul button.ok{grid-row:2/span 3}
 .qty.cum{border-color:#F2B705;box-shadow:inset 4px 0 0 #F2B705}.pad button.op[data-k="*"]{grid-row:2}
 .pad button.ok{grid-column:4;grid-row:3/span 2;height:auto;background:var(--ok);border-color:transparent;color:#fff;font-family:"Barlow",system-ui,sans-serif;font-size:17px;font-weight:800;letter-spacing:.04em;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
 .pad button.ok .ck{font-size:34px;line-height:1}
@@ -911,7 +922,7 @@ body:not(.control) .ctrlsrc{display:none}
     else if(l){ $("qtyVal").textContent = "× " + l.qty; $("qtyLbl").textContent = "Quantité"; }
     else { editBuf = ""; $("qtyVal").textContent = "1"; $("qtyLbl").textContent = "Quantité"; }
     $("padOk").classList.toggle("idle", !(cam.pending || (l && set)));
-    $("cumBtn").classList.toggle("on", !!state.cumul); $("qtyBox").classList.toggle("cum", !!state.cumul);
+    $("cumBtn").classList.toggle("on", !!state.cumul); $("pad").classList.toggle("cumul", !!state.cumul); $("qtyBox").classList.toggle("cum", !!state.cumul);
     if(state.cumul && !set) $("qtyLbl").textContent = "Cumul : tape 2, 2, 2…";
     else if(state.cumul && set) $("qtyLbl").textContent = "Cumul";
   }
@@ -1140,7 +1151,7 @@ body:not(.control) .ctrlsrc{display:none}
     if(k === "V"){ if(cam.pending) camValidate(); else validateQty(); focusScan(); return; }
     if(k === "S"){
       state.cumul = !state.cumul; save(); renderQty(); focusScan();
-      flash(state.cumul ? "Cumul activé : chaque touche ajoute sa valeur (2, 2, 2… ou 3, 3, 3…), puis OK." : "Cumul désactivé : les touches tapent un nombre.", "");
+      flash(state.cumul ? "Cumul activé : touches 1, 2 et 3 seulement. Chaque appui ajoute sa valeur, puis OK." : "Cumul désactivé : les touches tapent un nombre.", "");
       return;
     }
     const l = cam.pending ? null : lastL();
@@ -1149,7 +1160,7 @@ body:not(.control) .ctrlsrc{display:none}
     if(k === "C") b = "";
     else if(k === "B") b = state.cumul ? b.replace(/\+?\d+$/, "") : b.slice(0,-1);
     else if(state.cumul && /\d/.test(k)){
-      if(k === "0"){ renderQty(); focusScan(); return; }
+      if(!/[123]/.test(k)){ renderQty(); focusScan(); return; }
       if(/[*]/.test(b)) b = "";                        /* on repart à zéro si un × traînait */
       if(b.length < 600) b = b === "" ? k : b.replace(/\+$/, "") + "+" + k;
     }
@@ -2499,7 +2510,7 @@ body:not(.control) .ctrlsrc{display:none}
       '<div class="msec">Fin de mission</div>'+
       row("xFin", "lock", state.finished ? "Rouvrir la mission" : "Clôturer la mission", state.finished ? "" : "Bloque les scans", "red")+
       row("xNew", "add", "Nouvelle mission", "La mission actuelle est archivée", "red")+
-      '<p class="mver">Version 80 du 18/11/2026</p>');
+      '<p class="mver">Version 81 du 18/11/2026</p>');
     const keep = () => { state.check = $("mck").checked; state.autoBackup = $("mab").checked; state.bigQty = Math.max(2, parseInt($("mbq").value,10) || 50); state.confirm = $("mv").checked; state.hold = $("mhold").checked; state.keySound = $("mks").checked; state.mission = $("mn").value.trim(); state.prefix = ($("mp").value.trim() || "Z").toUpperCase(); save(); render(); };
     $("xNo").onclick = () => { keep(); closeSheet(); };
     $("xB").onclick = () => { beep(true); setTimeout(() => beep(true, "zone"), 500); setTimeout(() => beep(false), 1100); };
